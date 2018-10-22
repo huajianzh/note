@@ -19,7 +19,7 @@ public class Camera2Device implements ICamera {
     //当前打开的摄像头方向（默认后摄像头）
     private int mCurrentFacing = CameraCharacteristics.LENS_FACING_BACK;
     // 预览视图
-    private TextureView mPreviewTexture;
+    private BaseCameraPreview mPreviewTexture;
     //相机管理器
     private CameraManager mCameraManager;
     private CameraCharacteristics cameraCharacteristics;
@@ -103,7 +103,7 @@ public class Camera2Device implements ICamera {
     }
 
     @Override
-    public void configPreviewSize(TextureView textureView, int width, int height) {
+    public void configPreviewSize(BaseCameraPreview textureView, int width, int height) {
         this.mPreviewTexture = textureView;
         mCameraManager = (CameraManager) context.getSystemService(Context.CAMERA_SERVICE);
         // 开启后台工作线程
@@ -140,8 +140,8 @@ public class Camera2Device implements ICamera {
 //                TipsUtil.log((facing == CameraCharacteristics.LENS_FACING_BACK ? "后" : "前") + " 摄像头 " + " 是否支持自动对焦 " + mAutoFocusSupported + " 获取到焦距的最大值 " + minimum_focus_distance + " 最大的缩放值 " + maxZoom);
                 //获取相机传感器方向
                 mSensorOrientation = cameraCharacteristics.get(CameraCharacteristics.SENSOR_ORIENTATION);
-                //-- 2018/10/11先不考虑屏幕方向--- 获取到屏幕的旋转角度，进一步判断是否，需要交换维度来获取预览大小
-               /* WindowManager wm = (WindowManager) context.getSystemService(Context.WINDOW_SERVICE);
+                //获取到屏幕的旋转角度，进一步判断是否，需要交换维度来获取预览大小
+                WindowManager wm = (WindowManager) context.getSystemService(Context.WINDOW_SERVICE);
                 int displayRotation = wm.getDefaultDisplay().getRotation();
                 boolean swappedDimensions = false;
                 switch (displayRotation) {
@@ -159,20 +159,20 @@ public class Camera2Device implements ICamera {
                         break;
                     default:
                         TipsUtil.log("Display rotation is invalid: " + displayRotation);
-                }*/
+                }
                 Point displaySize = new Point();
                 ((WindowManager) context.getSystemService(Context.WINDOW_SERVICE)).getDefaultDisplay().getSize(displaySize);
                 int rotatedPreviewWidth = width;
                 int rotatedPreviewHeight = height;
                 int maxPreviewWidth = displaySize.x;
                 int maxPreviewHeight = displaySize.y;
-                /*//-- 2018/10/11先不考虑屏幕方向---//当角度反了的时候
+                //-- 2018/10/11先不考虑屏幕方向---//当角度反了的时候
                 if (swappedDimensions) {
                     rotatedPreviewWidth = height;
                     rotatedPreviewHeight = width;
                     maxPreviewWidth = displaySize.y;
                     maxPreviewHeight = displaySize.x;
-                }*/
+                }
                 if (maxPreviewWidth > MAX_PREVIEW_WIDTH) {
                     maxPreviewWidth = MAX_PREVIEW_WIDTH;
                 }
@@ -188,14 +188,13 @@ public class Camera2Device implements ICamera {
                 mImageReader = ImageReader.newInstance(mPreviewSize.getWidth(), mPreviewSize.getHeight(), ImageFormat.JPEG, 2);
                 mImageReader.setOnImageAvailableListener(onImageAvailableListener, mBackgroundHandler);
 //                // 计算出来的预览大小，设置成TextureView宽高.
-//                int orientation = context.getResources().getConfiguration().orientation;
-//                AutoFitTextureView mTextureView = (AutoFitTextureView) getTextureView();
-//                //横屏
-//                if (orientation == Configuration.ORIENTATION_LANDSCAPE) {
-//                    mTextureView.setAspectRatio(mPreviewSize.getWidth(), mPreviewSize.getHeight());
-//                } else {
-//                    mTextureView.setAspectRatio(mPreviewSize.getHeight(), mPreviewSize.getWidth());
-//                }
+                int orientation = context.getResources().getConfiguration().orientation;
+                //横屏
+                if (orientation == Configuration.ORIENTATION_LANDSCAPE) {
+                    mPreviewTexture.setAspectRatio(mPreviewSize.getWidth(), mPreviewSize.getHeight());
+                } else {
+                    mPreviewTexture.setAspectRatio(mPreviewSize.getHeight(), mPreviewSize.getWidth());
+                }
 //                // 检查，相机是否支持闪光。
 //                Boolean available = cameraCharacteristics.get(CameraCharacteristics.FLASH_INFO_AVAILABLE);
 //                mFlashSupported = available == null ? false : available;
@@ -623,14 +622,14 @@ public class Camera2Device implements ICamera {
             mMediaRecorder.setVideoSource(MediaRecorder.VideoSource.SURFACE);
             mMediaRecorder.setOutputFormat(MediaRecorder.OutputFormat.MPEG_4);
             mMediaRecorder.setOutputFile(FileUtil.createVideoDiskFile(context).getAbsolutePath());
-//        mMediaRecorder.setVideoEncodingBitRate(10000000);
-//        //每秒30帧
-//        mMediaRecorder.setVideoFrameRate(30);
-//        mMediaRecorder.setVideoSize(640, 480);
-//        mMediaRecorder.setVideoEncoder(MediaRecorder.VideoEncoder.H264);
-//        mMediaRecorder.setAudioEncoder(MediaRecorder.AudioEncoder.AAC);
-            //配置录制的视频为720p
-            mMediaRecorder.setProfile(CamcorderProfile.get(mCurrentFacing, CamcorderProfile.QUALITY_720P));
+            mMediaRecorder.setVideoEncodingBitRate(10000000);
+            //每秒30帧
+            mMediaRecorder.setVideoFrameRate(30);
+            mMediaRecorder.setVideoSize(640, 480);
+            mMediaRecorder.setVideoEncoder(MediaRecorder.VideoEncoder.H264);
+            mMediaRecorder.setAudioEncoder(MediaRecorder.AudioEncoder.AAC);
+            //2018-10-22先试试自定义配置 //配置录制的视频为720p
+//            mMediaRecorder.setProfile(CamcorderProfile.get(mCurrentFacing, CamcorderProfile.QUALITY_720P));
 //        int rotation = ((WindowManager)context.getSystemService(Context.WINDOW_SERVICE)).getDefaultDisplay().getRotation();
 //        switch (mSensorOrientation) {
 //            case SENSOR_ORIENTATION_DEFAULT_DEGREES:
