@@ -1,0 +1,30 @@
+setXfermode(Xfermode xfermode)
+
+该方法用来设置两张图片相交时的模式，用法如：
+Canvas canvas = new Canvas(bitmap1);      
+paint.setXfermode(new PorterDuffXfermode(Mode.SRC_IN));      
+canvas.drawBitmap(mask, 0f, 0f, paint);  
+
+就是在图片bitmap1上面绘制图片mask时 处理两者相交时候显示的问题
+
+canvas原有的图片可以理解为背景就是dst 
+新画上去的图片可以理解为前景就是src
+
+16条Porter-Duff规则
+
+1.PorterDuff.Mode.CLEAR 所绘制不会提交到画布上。
+2.PorterDuff.Mode.SRC 显示上层绘制图片
+3.PorterDuff.Mode.DST 显示下层绘制图片
+4.PorterDuff.Mode.SRC_OVER 正常绘制显示，上下层绘制叠盖。
+5.PorterDuff.Mode.DST_OVER 上下层都显示。下层居上显示。
+6.PorterDuff.Mode.SRC_IN 取两层绘制交集。显示上层。
+7.PorterDuff.Mode.DST_IN 取两层绘制交集。显示下层。
+8.PorterDuff.Mode.SRC_OUT 取上层绘制非交集部分。
+9.PorterDuff.Mode.DST_OUT 取下层绘制非交集部分。
+10.PorterDuff.Mode.SRC_ATOP 取下层非交集部分与上层交集部分
+11.PorterDuff.Mode.DST_ATOP 取上层非交集部分与下层交集部分
+12.PorterDuff.Mode.XOR
+13.PorterDuff.Mode.DARKEN
+14.PorterDuff.Mode.LIGHTEN
+15.PorterDuff.Mode.MULTIPLY
+16.PorterDuff.Mode.SCREEN
