@@ -1,0 +1,458 @@
+public class CropImageView extends ImageView {
+    //左上角
+    private static final int LEFT_TOP = 1;
+    //右上角
+    private static final int RIGHT_TOP = 2;
+    //左下角
+    private static final int LEFT_BOTTOM = 3;
+    //右下角
+    private static final int RIGHT_BOTTOM = 4;
+    //左边框
+    private static final int LEFT = 5;
+    //顶边框
+    private static final int TOP = 6;
+    //右边框
+    private static final int RIGHT = 7;
+    //底边框
+    private static final int BOTTOM = 8;
+    //中间
+    private static final int CENTER = 9;
+    //操作位置点
+    private int controlPos;
+    //控制操作的上一个点
+    private Point lastPoint = new Point();
+    //控制过程中的最小间距
+    private static final int MIN_SPACING = 50;
+    //需要裁剪的区域(默认显示在图像正中间)
+    private Rect rectClip;
+    //图像显示区域
+    private Rect imageRect;
+    //画遮罩上的虚线以及控制点的画笔
+    private Paint paint;
+
+    public CropImageView(Context context) {
+        super(context);
+        init();
+    }
+
+    public CropImageView(Context context, @Nullable AttributeSet attrs) {
+        super(context, attrs);
+        init();
+    }
+
+    private void init() {
+        //去掉硬件加速，免得Region.Op.DIFFERENCE没有效果
+        setLayerType(View.LAYER_TYPE_SOFTWARE, null);
+        paint = new Paint();
+        paint.setAntiAlias(true);
+        paint.setStrokeWidth(2);
+        paint.setColor(0xFFFFFFFF);
+    }
+
+    @Override
+    protected void onSizeChanged(int w, int h, int oldw, int oldh) {
+        super.onSizeChanged(w, h, oldw, oldh);
+        if (rectClip != null) {
+            getImageInfo();
+            initClipRect();
+        }
+    }
+
+    //初始化裁剪区域
+    private void initClipRect() {
+        //图像显示大小
+        int iW = imageRect.width();
+        int iH = imageRect.height();
+        //默认裁剪的正方形区域宽高,取宽高一半以及中心点确认裁剪区域左上右下
+        int size = iW > iH ? iH / 2 : iW / 2;
+        int iCenterX = imageRect.centerX();
+        int iCenterY = imageRect.centerY();
+        rectClip.set(iCenterX - size, iCenterY - size, iCenterX + size, iCenterY + size);
+    }
+
+    public Rect getImageInfo() {
+        Rect rect = getDrawable().getBounds();
+        float[] values = new float[9];
+        getImageMatrix().getValues(values);
+        float scaleWidth = rect.width() * values[0];
+        float scaleHeight = rect.height() * values[4];
+        float left = values[2];
+        float top = values[5];
+        float right = left + scaleWidth;
+        float bottom = top + scaleHeight;
+        if (null == imageRect) {
+            imageRect = new Rect((int) left, (int) top, (int) right, (int) bottom);
+        } else {
+            imageRect.set((int) left, (int) top, (int) right, (int) bottom);
+        }
+        return imageRect;
+    }
+
+    @Override
+    protected void onDraw(Canvas canvas) {
+        //显示图像
+        super.onDraw(canvas);
+        //第一次获取视图宽高来初始化裁剪区域
+        if (null == rectClip) {
+            rectClip = new Rect();
+            getImageInfo();
+            initClipRect();
+        }
+        //画遮罩层
+        canvas.save();
+        //坑!!!需要hardwareAccelerated="false"才有效果
+        canvas.clipRect(rectClip, Region.Op.DIFFERENCE);
+        canvas.drawColor(0xAA000000);
+        canvas.restore();
+        //画遮罩上的虚线和边框
+        drawBorderAndLine(canvas);
+        //画4个角落控制点
+        drawControllerPoint(canvas);
+    }
+
+    private void drawBorderAndLine(Canvas canvas) {
+        //虚线
+        paint.setStyle(Paint.Style.STROKE);
+        //绘制长度为10的实线后再绘制长度为8的空白区域，0位间隔
+        paint.setPathEffect(new DashPathEffect(new float[]{10, 8}, 0));
+        //四周边框
+        canvas.drawRect(rectClip, paint);
+        //画横竖个两条线条
+        //水平方向线条间距
+        int verticalSpacing = rectClip.height() / 3;
+        //水平线
+        int y = rectClip.top;
+        for (int i = 0; i < 2; i++) {
+            y = y + verticalSpacing;
+            canvas.drawLine(rectClip.left, y, rectClip.right, y, paint);
+        }
+        //垂直线
+        int x = rectClip.left;
+        int horizontalSpacing = rectClip.width() / 3;
+        for (int i = 0; i < 2; i++) {
+            x = x + horizontalSpacing;
+            canvas.drawLine(x, rectClip.top, x, rectClip.bottom, paint);
+        }
+    }
+
+    private int len = 30, sh = 5;
+
+    //画4个角控制点
+    private void drawControllerPoint(Canvas canvas) {
+        paint.setStyle(Paint.Style.FILL);
+        //左上角
+        canvas.drawRect(rectClip.left, rectClip.top, rectClip.left + sh, rectClip.top + len, paint);
+        canvas.drawRect(rectClip.left, rectClip.top, rectClip.left + len, rectClip.top + sh, paint);
+        //右上角
+        canvas.drawRect(rectClip.right - len, rectClip.top, rectClip.right, rectClip.top + sh, paint);
+        canvas.drawRect(rectClip.right - sh, rectClip.top, rectClip.right, rectClip.top + len, paint);
+        //左下角
+        canvas.drawRect(rectClip.left, rectClip.bottom - len, rectClip.left + sh, rectClip.bottom, paint);
+        canvas.drawRect(rectClip.left, rectClip.bottom - sh, rectClip.left + len, rectClip.bottom, paint);
+        //右下角
+        canvas.drawRect(rectClip.right - len, rectClip.bottom - sh, rectClip.right, rectClip.bottom, paint);
+        canvas.drawRect(rectClip.right - sh, rectClip.bottom - len, rectClip.right, rectClip.bottom, paint);
+    }
+
+    @Override
+    public boolean dispatchTouchEvent(MotionEvent event) {
+        int action = event.getAction();
+        switch (action) {
+            case MotionEvent.ACTION_DOWN:
+                int x = (int) event.getX();
+                int y = (int) event.getY();
+                controlPos = getControlPosition(x, y);
+                if (controlPos > 0) {
+                    lastPoint.set(x, y);
+                }
+                break;
+
+            case MotionEvent.ACTION_MOVE:
+                if (controlPos > 0) {
+                    //偏移量
+                    int cx = (int) event.getX();
+                    int cy = (int) event.getY();
+                    int dx = cx - lastPoint.x;
+                    int dy = cy - lastPoint.y;
+                    //修改裁剪区域
+                    changeZone(dx,dy);
+                    lastPoint.set(cx, cy);
+                    invalidate();
+                }
+                break;
+        }
+        return true;
+    }
+
+    /**
+     * 根据偏移量修改裁剪区域
+     * @param dx
+     * @param dy
+     */
+    private void changeZone(int dx,int dy){
+        switch (controlPos) {
+            case LEFT:
+                changeLeft(dx);
+                break;
+            case LEFT_TOP:
+                changeLeft(dx);
+                changeTop(dy);
+                break;
+            case LEFT_BOTTOM:
+                changeLeft(dx);
+                changeBottom(dy);
+                break;
+            case RIGHT:
+                changeRight(dx);
+                break;
+            case RIGHT_TOP:
+                changeRight(dx);
+                changeTop(dy);
+                break;
+            case RIGHT_BOTTOM:
+                changeRight(dx);
+                changeBottom(dy);
+                break;
+            case TOP:
+                changeTop(dy);
+                break;
+            case BOTTOM:
+                changeBottom(dy);
+                break;
+            case CENTER:
+                changeCenter(dx,dy);
+                break;
+        }
+    }
+
+    private void changeLeft(int dx) {
+        int nLeft = rectClip.left + dx;
+        if (nLeft < imageRect.left) {
+            nLeft = imageRect.left;
+        }
+        //裁剪区域右边界
+        else if (nLeft > rectClip.right - MIN_SPACING) {
+            nLeft = rectClip.right - MIN_SPACING;
+        }
+        rectClip.left = nLeft;
+    }
+
+    private void changeTop(int dy) {
+        int nTop = rectClip.top + dy;
+        if (nTop < imageRect.top) {
+            nTop = imageRect.top;
+        }
+        //裁剪区域下边界
+        else if (nTop > rectClip.bottom - MIN_SPACING) {
+            nTop = rectClip.bottom - MIN_SPACING;
+        }
+        rectClip.top = nTop;
+    }
+
+    private void changeBottom(int dy) {
+        int nBottom = rectClip.bottom + dy;
+        if (nBottom > imageRect.bottom) {
+            nBottom = imageRect.bottom;
+        }
+        //裁剪区域上边界
+        else if (nBottom < rectClip.top + MIN_SPACING) {
+            nBottom = rectClip.top + MIN_SPACING;
+        }
+        rectClip.bottom = nBottom;
+    }
+
+    private void changeRight(int dx) {
+        int nRight = rectClip.right + dx;
+        if (nRight > imageRect.right) {
+            nRight = imageRect.right;
+        }
+        //裁剪区域的左边界
+        if (nRight < rectClip.left + MIN_SPACING) {
+            nRight = rectClip.left + MIN_SPACING;
+        }
+        rectClip.right = nRight;
+    }
+
+    private void changeCenter(int dx, int dy) {
+        rectClip.offset(dx, dy);
+        //检测是否有超过图像区域
+        //左侧以及右侧
+        if (rectClip.left < imageRect.left || rectClip.right > imageRect.right) {
+            int xOffset;
+            if (rectClip.left < imageRect.left) {
+                xOffset = imageRect.left - rectClip.left;
+            } else {
+                xOffset = imageRect.right - rectClip.right;
+            }
+            rectClip.left += xOffset;
+            rectClip.right += xOffset;
+        }
+        //上下
+        if (rectClip.top < imageRect.top || rectClip.bottom > imageRect.bottom) {
+            int yOffset;
+            if (rectClip.top < imageRect.top) {
+                yOffset = imageRect.top - rectClip.top;
+            } else {
+                yOffset = imageRect.bottom - rectClip.bottom;
+            }
+            rectClip.top += yOffset;
+            rectClip.bottom += yOffset;
+        }
+    }
+
+    /**
+     * 获取控制位置
+     *
+     * @param x
+     * @param y
+     * @return
+     */
+    private int getControlPosition(int x, int y) {
+        if (rectClip.contains(x, y)) {
+            //左边区域内
+            if (x >= rectClip.left && x <= rectClip.left + len) {
+                if (y >= rectClip.top && y <= rectClip.top + len) {
+                    //上角
+                    return LEFT_TOP;
+                } else if (y >= rectClip.bottom - len && y <= rectClip.bottom) {
+                    //下角
+                    return LEFT_BOTTOM;
+                } else {
+                    return LEFT;
+                }
+            }
+            //顶部区域
+            else if (y >= rectClip.top && y <= rectClip.top + len) {
+                if (x >= rectClip.left && x <= rectClip.left + len) {
+                    //左角
+                    return LEFT_TOP;
+                } else if (x >= rectClip.right - len && x <= rectClip.right) {
+                    //右角
+                    return RIGHT_TOP;
+                } else {
+                    return TOP;
+                }
+            }
+            //右侧区域
+            else if (x >= rectClip.right - len && x < rectClip.right) {
+                if (y >= rectClip.top && y <= rectClip.top + len) {
+                    //上角
+                    return RIGHT_TOP;
+                } else if (y >= rectClip.bottom - len && y < rectClip.bottom) {
+                    //下角
+                    return RIGHT_BOTTOM;
+                } else {
+                    return RIGHT;
+                }
+            }
+            //底部区域
+            else if (y >= rectClip.bottom - len && y <= rectClip.bottom) {
+                if (x <= rectClip.left && x <= rectClip.left + len) {
+                    //左角
+                    return LEFT_BOTTOM;
+                } else if (x >= rectClip.right - len && x <= rectClip.right) {
+                    //右角
+                    return RIGHT_BOTTOM;
+                } else {
+                    return BOTTOM;
+                }
+            } else {
+                return CENTER;
+            }
+        }
+        return 0;
+    }
+
+    /**
+     * 从预览上截取保存
+     * @param savePath
+     * @return
+     */
+    public boolean saveBitmapFromPreview(String savePath){
+        BitmapDrawable bd = (BitmapDrawable) getDrawable();
+        Bitmap temp = bd.getBitmap();
+        //原图区域
+        Rect rectOriginal = new Rect(0,0,temp.getWidth(),temp.getHeight());
+        //原图区域和显示区域的显示宽高比(大部分是等比例的，以防万一就分开处理了)
+        float wScale = (float)rectOriginal.width()/imageRect.width();
+        float hScale = (float)rectOriginal.height()/imageRect.height();
+       //裁剪区域相对于显示区域的偏移量
+        int l = (int) ((rectClip.left-imageRect.left)*wScale);
+        int t = (int) ((rectClip.top-imageRect.top)*hScale);
+        //需要裁剪的区域
+        Rect cropRect = new Rect(l,t,(int)(l+rectClip.width()*wScale),(int)(t+rectClip.height()*hScale));
+        //从原图上获取裁剪区域(目前从显示的Bitmap中裁剪出来)
+        Bitmap bitmap = Bitmap.createBitmap(temp,cropRect.left,cropRect.top,cropRect.width(),cropRect.height());
+        return saveBitmap(bitmap,savePath);
+    }
+
+    /**
+     * 基于预览映射到本地，从原图上截取，保存
+     * @param sourcePath
+     * @param savePath
+     * @return
+     */
+    public boolean saveBitmapFromLocal(String sourcePath,String savePath){
+        BitmapRegionDecoder decoder = null;
+        //从磁盘的原图上截取
+        try {
+            decoder = BitmapRegionDecoder.newInstance(sourcePath,true);
+            //原图区域
+            Rect rectOriginal = new Rect(0,0,decoder.getWidth(),decoder.getHeight());
+            //原图区域和显示区域的显示宽高比(大部分是等比例的，以防万一就分开处理了)
+            float wScale = (float)rectOriginal.width()/imageRect.width();
+            float hScale = (float)rectOriginal.height()/imageRect.height();
+            //裁剪区域相对于显示区域的偏移量
+            int l = (int) ((rectClip.left-imageRect.left)*wScale);
+            int t = (int) ((rectClip.top-imageRect.top)*hScale);
+            //需要裁剪的区域
+            Rect cropRect = new Rect(l,t,(int)(l+rectClip.width()*wScale),(int)(t+rectClip.height()*hScale));
+            BitmapFactory.Options mOptions = new BitmapFactory.Options();
+            mOptions.inPreferredConfig = Bitmap.Config.RGB_565;
+            Bitmap bitmap = decoder.decodeRegion(cropRect,mOptions);
+            return saveBitmap(bitmap,savePath);
+        } catch (IOException e) {
+            e.printStackTrace();
+            return false;
+        }finally {
+            if(null != decoder){
+                decoder.recycle();
+                decoder = null;
+            }
+        }
+
+
+    }
+
+    /**
+     * 保存图片到本地
+     * @param bitmap
+     * @param savePath
+     * @return
+     */
+    private boolean saveBitmap(Bitmap bitmap,String savePath){
+        //保存
+        FileOutputStream out = null;
+        try {
+            out = new FileOutputStream(savePath);
+            bitmap.compress(Bitmap.CompressFormat.JPEG,100,out);
+            return true;
+        } catch (Exception e) {
+            e.printStackTrace();
+            return false;
+        }finally {
+            if(null != out){
+                try {
+                    out.flush();
+                } catch (IOException e) {
+                    e.printStackTrace();
+                }
+                try {
+                    out.close();
+                } catch (IOException e) {
+                    e.printStackTrace();
+                }
+            }
+        }
+    }
+}
