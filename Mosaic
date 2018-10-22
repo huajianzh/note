@@ -1,0 +1,225 @@
+绘制马赛克，原理：基于原图生成一个小图，然后放大到原效果（放大过程如果不消除锯齿就有块状，消除则会模糊实现磨皮效果），然后画笔绘制交集即可
+public class CustomDrawImageView extends ImageView {
+    private static final float TOUCH_TOLERANCE = 4;
+    //图像显示区域
+    private Rect imageRect;
+    //画笔
+    private Paint mPaint;
+    //叠加模式
+    private PorterDuffXfermode mDuffXferMosaicMode;
+    //马赛克层
+    private Bitmap mMosaicBmp;
+    private LinkedList<PathEffect> mDrawRecords;
+
+    public CustomDrawImageView(Context context) {
+        this(context, null);
+    }
+
+    public CustomDrawImageView(Context context, @Nullable AttributeSet attrs) {
+        super(context, attrs);
+        init();
+    }
+
+    private void init() {
+        mPaint = new Paint();
+        mPaint.setAntiAlias(true);
+        mPaint.setStrokeCap(Paint.Cap.ROUND);//圆的线帽
+        mPaint.setStrokeJoin(Paint.Join.ROUND);//圆弧拐角
+        mPaint.setStyle(Paint.Style.STROKE);
+
+        mDuffXferMosaicMode = new PorterDuffXfermode(PorterDuff.Mode.SRC_IN);
+        //绘制记录
+        mDrawRecords = new LinkedList<>();
+    }
+
+    @Override
+    public void setImageDrawable(Drawable drawable) {
+        super.setImageDrawable(drawable);
+        if (drawable != null && drawable instanceof BitmapDrawable) {
+            scaleBitmap(((BitmapDrawable) drawable).getBitmap());
+        }
+    }
+
+    @Override
+    public void setImageBitmap(Bitmap bm) {
+        super.setImageBitmap(bm);
+        scaleBitmap(bm);
+    }
+
+    // 生成小图
+    private void scaleBitmap(Bitmap bm) {
+        int width = bm.getWidth();
+        float scale = 50.0f / width;
+        Matrix matrix = new Matrix();
+        matrix.postScale(scale, scale);
+        //生成一张小图
+        mMosaicBmp = Bitmap.createBitmap(bm, 0, 0, width, bm.getHeight(),
+                matrix, false);
+    }
+
+    @Override
+    protected void onLayout(boolean changed, int left, int top, int right, int bottom) {
+        super.onLayout(changed, left, top, right, bottom);
+        if (mMosaicBmp != null) {
+            if (null == imageRect) {
+                getImageInfo();
+            }
+            Matrix mosaicMatrix = new Matrix();
+            mosaicMatrix.setTranslate(imageRect.left, imageRect.top);
+            float scaleX = imageRect.width() / mMosaicBmp.getWidth();
+            float scaleY = imageRect.height() / mMosaicBmp.getHeight();
+            mosaicMatrix.postScale(scaleX, scaleY);
+            // 将小图放大到跟原图大小一致
+            //最后一个参数消除锯齿(为true可以实现磨皮效果)
+            mMosaicBmp = Bitmap.createBitmap(mMosaicBmp, 0, 0, mMosaicBmp.getWidth(), mMosaicBmp.getHeight(),
+                    mosaicMatrix, false);
+        }
+    }
+
+    @Override
+    protected void onDraw(Canvas canvas) {
+        super.onDraw(canvas);
+        if (!mDrawRecords.isEmpty()) {
+            int canvasWidth = canvas.getWidth();
+            int canvasHeight = canvas.getHeight();
+            //新图层
+            int layerId = canvas.saveLayer(0, 0, canvasWidth, canvasHeight, null, Canvas.ALL_SAVE_FLAG);
+            canvas.clipRect(imageRect); //限定区域
+            int size = mDrawRecords.size();
+            for (int i = 0 ; i < size ;i++) {
+                PathEffect drawPath = mDrawRecords.get(i);
+                if(drawPath.isMosaic){
+                    //马赛克类型要和普通涂鸦分开，因此在马赛克状态下单独控制画布状态
+                    canvas.restoreToCount(layerId);
+                    layerId = canvas.saveLayer(0, 0, canvasWidth, canvasHeight, null, Canvas.ALL_SAVE_FLAG);
+                    drawPath.draw(canvas, mPaint); //滑过的区域
+                    mPaint.setXfermode(mDuffXferMosaicMode);//设置叠加模式
+                    canvas.drawBitmap(mMosaicBmp, imageRect.left, imageRect.top, mPaint);//画出重叠区域
+                    mPaint.setXfermode(null);
+                    canvas.restoreToCount(layerId);
+                }else{
+                    drawPath.draw(canvas, mPaint);
+                }
+            }
+            canvas.restoreToCount(layerId);
+        }
+
+    }
+
+    /**
+     * 保存图片
+     * @param savePath
+     * @return
+     */
+    public boolean saveBitmap(String savePath){
+        Bitmap tempBitmap =  Bitmap.createBitmap(getWidth(), getHeight(), Bitmap.Config.ARGB_8888);
+        Canvas c = new Canvas(tempBitmap);
+        draw(c);
+        Bitmap saveBitmap = Bitmap.createBitmap(tempBitmap,imageRect.left,imageRect.top,imageRect.width(),imageRect.height());
+        //保存
+        FileOutputStream out = null;
+        try {
+            out = new FileOutputStream(savePath);
+            saveBitmap.compress(Bitmap.CompressFormat.JPEG,100,out);
+            return true;
+        } catch (Exception e) {
+            e.printStackTrace();
+            return false;
+        }finally {
+            if(null != out){
+                try {
+                    out.flush();
+                } catch (IOException e) {
+                    e.printStackTrace();
+                }
+                try {
+                    out.close();
+                } catch (IOException e) {
+                    e.printStackTrace();
+                }
+            }
+            tempBitmap.recycle();
+            saveBitmap.recycle();
+        }
+    }
+
+    /**
+     * 撤销
+     */
+    public void undo(){
+        if(!mDrawRecords.isEmpty()){
+            mDrawRecords.removeLast();
+            invalidate();
+        }
+    }
+
+    private float lastX, lastY;
+    private PathEffect lastPathEffect;
+    private int color = Color.RED;
+    private float paintSize = 32;
+    private boolean isMosaic;
+
+    @Override
+    public boolean onTouchEvent(MotionEvent event) {
+        int action = event.getAction();
+        switch (action) {
+            case MotionEvent.ACTION_DOWN:
+                lastX = event.getX();
+                lastY = event.getY();
+                lastPathEffect = new PathEffect(isMosaic,color,paintSize);
+                mDrawRecords.addLast(lastPathEffect);
+                lastPathEffect.moveTo(lastX, lastY);
+                break;
+            case MotionEvent.ACTION_MOVE:
+                float moveX = event.getX();
+                float moveY = event.getY();
+                float dx = Math.abs(moveX - lastX);
+                float dy = Math.abs(moveY - lastY);
+                if (dx >= TOUCH_TOLERANCE || dy >= TOUCH_TOLERANCE) {
+                    lastPathEffect.quadTo(lastX, lastY, (moveX + lastX) / 2, (moveY + lastY) / 2);
+                    lastX = moveX;
+                    lastY = moveY;
+                }
+                break;
+            case MotionEvent.ACTION_UP:
+                lastPathEffect.up(event.getX(), event.getY());
+                break;
+        }
+        invalidate();
+        return true;
+    }
+
+
+    private Rect getImageInfo() {
+        Rect rect = getDrawable().getBounds();
+        float[] values = new float[9];
+        getImageMatrix().getValues(values);
+        float scaleWidth = rect.width() * values[0];
+        float scaleHeight = rect.height() * values[4];
+        float left = values[2];
+        float top = values[5];
+        float right = left + scaleWidth;
+        float bottom = top + scaleHeight;
+        if (null == imageRect) {
+            imageRect = new Rect((int) left, (int) top, (int) right, (int) bottom);
+        } else {
+            imageRect.set((int) left, (int) top, (int) right, (int) bottom);
+        }
+        return imageRect;
+    }
+
+    public CustomDrawImageView setColor(int color) {
+        this.color = color;
+        return this;
+    }
+
+    public CustomDrawImageView setPaintSize(float paintSize) {
+        this.paintSize = paintSize;
+        return this;
+    }
+
+    public CustomDrawImageView setMosaic(boolean mosaic) {
+        isMosaic = mosaic;
+        return this;
+    }
+}
