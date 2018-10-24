@@ -1,6 +1,5 @@
 绘制马赛克，原理：基于原图生成一个小图，然后放大到原效果（放大过程如果不消除锯齿就有块状，消除则会模糊实现磨皮效果），然后画笔绘制交集即可
-public class CustomDrawImageView extends ImageView {
-    private static final float TOUCH_TOLERANCE = 4;
+private static final float TOUCH_TOLERANCE = 4;
     //图像显示区域
     private Rect imageRect;
     //画笔
@@ -11,11 +10,11 @@ public class CustomDrawImageView extends ImageView {
     private Bitmap mMosaicBmp;
     private LinkedList<PathEffect> mDrawRecords;
 
-    public CustomDrawImageView(Context context) {
+    public ScrawlImageView(Context context) {
         this(context, null);
     }
 
-    public CustomDrawImageView(Context context, @Nullable AttributeSet attrs) {
+    public ScrawlImageView(Context context, AttributeSet attrs) {
         super(context, attrs);
         init();
     }
@@ -208,18 +207,60 @@ public class CustomDrawImageView extends ImageView {
         return imageRect;
     }
 
-    public CustomDrawImageView setColor(int color) {
+    public ScrawlImageView setColor(int color) {
         this.color = color;
         return this;
     }
 
-    public CustomDrawImageView setPaintSize(float paintSize) {
+    public ScrawlImageView setPaintSize(float paintSize) {
         this.paintSize = paintSize;
         return this;
     }
 
-    public CustomDrawImageView setMosaic(boolean mosaic) {
+    public ScrawlImageView setMosaic(boolean mosaic) {
         isMosaic = mosaic;
         return this;
     }
+}
+
+class PathEffect {
+    //是否是马赛克
+    boolean isMosaic;
+    //笔触颜色
+    int color;
+    //笔触大小
+    float size = 32;
+    Path path;
+
+    PathEffect() {
+        path = new Path();
+    }
+
+    public PathEffect(boolean isMosaic, int color, float size) {
+        this();
+        this.isMosaic = isMosaic;
+        this.color = color;
+        this.size = size;
+    }
+
+    void moveTo(float x, float y) {
+        path.moveTo(x, y);
+    }
+
+    void quadTo(float x1, float y1, float x2, float y2) {
+        path.quadTo(x1, y1, x2, y2);
+    }
+
+    void up(float x, float y) {
+        path.lineTo(x, y + 0.1f);
+    }
+
+    void draw(Canvas canvas, Paint mPaint) {
+        if (!isMosaic) {
+            mPaint.setColor(color);
+        }
+        mPaint.setStrokeWidth(size);
+        canvas.drawPath(path, mPaint);
+    }
+
 }
