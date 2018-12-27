@@ -1,0 +1,200 @@
+package com.byd.view;
+
+import android.content.Context;
+import android.graphics.Bitmap;
+import android.graphics.BitmapFactory;
+import android.graphics.BitmapRegionDecoder;
+import android.graphics.Canvas;
+import android.graphics.Color;
+import android.graphics.Rect;
+import android.support.annotation.Nullable;
+import android.util.AttributeSet;
+import android.view.MotionEvent;
+import android.view.View;
+
+import java.io.IOException;
+import java.io.InputStream;
+
+/**
+ * Created by zhang.huajian on 2018/12/27.
+ * Email: zhang.huajian2@byd.com
+ * 原图查看器（图片局部加载器）
+ */
+public class RegionImageView extends View {
+    //默认尺寸（wrap_content时的取值）
+    private static final int DEFAULT_SIZE = 100;
+    //显示区域宽高
+    private int showWidth, showHeight;
+    //图像实际宽高
+    private int bitmapWidth, bitmapHeight;
+    //解码器
+    private BitmapRegionDecoder mDecoder;
+    private BitmapFactory.Options options;
+    //显示的区域
+    private Rect rect;
+
+    public RegionImageView(Context context) {
+        this(context, null);
+    }
+
+    public RegionImageView(Context context, @Nullable AttributeSet attrs) {
+        super(context, attrs);
+        options = new BitmapFactory.Options();
+        rect = new Rect();
+    }
+
+    @Override
+    protected void onDraw(Canvas canvas) {
+        canvas.drawColor(Color.WHITE);
+        if (null != mDecoder) {
+            Bitmap bitmap = mDecoder.decodeRegion(rect, options);
+            options.inBitmap = bitmap;
+            canvas.drawBitmap(bitmap, 0, 0, null);
+        }
+    }
+
+    private int lastX, lastY;
+
+    @Override
+    public boolean dispatchTouchEvent(MotionEvent event) {
+        switch (event.getAction()) {
+            case MotionEvent.ACTION_DOWN:
+                lastX = (int) event.getX();
+                lastY = (int) event.getY();
+                break;
+            case MotionEvent.ACTION_MOVE:
+                int x = (int) event.getX();
+                int y = (int) event.getY();
+                //偏移量
+                int dx = x - lastX;
+                int dy = y - lastY;
+                boolean isChange = false;
+                //水平方向
+                if (bitmapWidth > showWidth) {
+                    rect.offset(-dx, 0);
+                    //检测水平方向边界
+                    if (rect.left < 0) {
+                        rect.left = 0;
+                        rect.right = showWidth;
+                    } else if (rect.right > bitmapWidth) {
+                        rect.right = bitmapWidth;
+                        rect.left = bitmapWidth - showWidth;
+                    }
+                    isChange = true;
+                }
+                //垂直方向
+                if (bitmapHeight > showHeight) {
+                    rect.offset(0,-dy);
+                    //检测垂直方向边界
+                    if (rect.top < 0) {
+                        rect.top = 0;
+                        rect.bottom = showHeight;
+                    } else if (rect.bottom > bitmapHeight) {
+                        rect.bottom = bitmapHeight;
+                        rect.top = bitmapHeight - showHeight;
+                    }
+                    isChange = true;
+                }
+                lastX = x;
+                lastY = y;
+                if(isChange) {
+                    invalidate();
+                }
+                break;
+            case MotionEvent.ACTION_UP:
+            case MotionEvent.ACTION_CANCEL:
+
+                break;
+        }
+        return true;
+    }
+
+    public void setDataSource(String path) {
+        //获取原图宽高
+        options.inJustDecodeBounds = true;
+        BitmapFactory.decodeFile(path, options);
+        initBitmapSize();
+        options.inJustDecodeBounds = false;
+        // 初始化局部加载器
+        if (mDecoder != null && !mDecoder.isRecycled()) {
+            mDecoder.recycle();
+        }
+        try {
+            mDecoder = BitmapRegionDecoder.newInstance(path, false);
+        } catch (IOException e) {
+            e.printStackTrace();
+            if (null != mDecoder) {
+                mDecoder.recycle();
+                mDecoder = null;
+            }
+        }
+        invalidate();
+    }
+
+    public void setDataSource(InputStream in) {
+        //获取原图宽高
+        options.inJustDecodeBounds = true;
+        BitmapFactory.decodeStream(in, null, options);
+        initBitmapSize();
+        options.inJustDecodeBounds = false;
+        // 初始化局部加载器
+        if (mDecoder != null && !mDecoder.isRecycled()) {
+            mDecoder.recycle();
+        }
+        try {
+            mDecoder = BitmapRegionDecoder.newInstance(in, false);
+        } catch (IOException e) {
+            e.printStackTrace();
+            if (null != mDecoder) {
+                mDecoder.recycle();
+                mDecoder = null;
+            }
+        }
+        invalidate();
+    }
+
+    private void initBitmapSize() {
+        bitmapWidth = options.outWidth;
+        bitmapHeight = options.outHeight;
+    }
+
+    @Override
+    protected void onMeasure(int widthMeasureSpec, int heightMeasureSpec) {
+        setMeasuredDimension(resolveSizeAndState(DEFAULT_SIZE, widthMeasureSpec, 0),
+                resolveSizeAndState(DEFAULT_SIZE, heightMeasureSpec, 0));
+        int viewWidth = getMeasuredWidth();
+        int viewHeight = getMeasuredHeight();
+        //初始化显示区域(默认显示图像中心)
+        if (bitmapWidth != 0 && bitmapHeight != 0) {
+            if (bitmapWidth > viewWidth) {
+                rect.left = (bitmapWidth >> 1) - (viewWidth >> 1);
+                rect.right = rect.left + viewWidth;
+                showWidth = viewWidth;
+            } else {
+                rect.left = 0;
+                rect.right = bitmapWidth;
+                showWidth = bitmapWidth;
+            }
+            if (bitmapHeight > viewWidth) {
+                showHeight = viewHeight;
+                rect.top = (bitmapHeight >> 1) - (viewHeight >> 1);
+                rect.bottom = rect.top + viewHeight;
+            } else {
+                rect.top = 0;
+                rect.bottom = bitmapHeight;
+                showHeight = bitmapHeight;
+            }
+        }
+    }
+
+    public void release() {
+        if (options.inBitmap != null && !options.inBitmap.isRecycled()) {
+            options.inBitmap.recycle();
+            options.inBitmap = null;
+        }
+        if (null != mDecoder && !mDecoder.isRecycled()) {
+            mDecoder.recycle();
+            mDecoder = null;
+        }
+    }
+}
