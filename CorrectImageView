@@ -1,0 +1,216 @@
+package com.byd.view;
+
+import android.content.Context;
+import android.graphics.Bitmap;
+import android.graphics.Canvas;
+import android.graphics.DashPathEffect;
+import android.graphics.Matrix;
+import android.graphics.Paint;
+import android.graphics.Rect;
+import android.graphics.drawable.BitmapDrawable;
+import android.support.annotation.Nullable;
+import android.util.AttributeSet;
+import android.view.MotionEvent;
+import android.view.View;
+import android.widget.ImageView;
+
+/**
+ * Created by zhang.huajian on 2019/1/2.
+ * Email: zhang.huajian2@byd.com
+ * 矫正图像视图
+ */
+public class CorrectPicView extends ImageView {
+    //目标坐标（新坐标）
+    private float[] dst;
+    //原始坐标
+    private float[] src;
+    private Paint paint;
+    //虚线样式
+    private DashPathEffect dashPathEffect;
+    private Rect[] rectPinter;
+    //视图上的点，最终要映射到图像上才可以进行矫正
+    private float[] viewPointer;
+    //顶点半径
+    private int pointRadius = 10;
+    private Rect imageRect;
+
+    public CorrectPicView(Context context) {
+        this(context, null);
+    }
+
+    public CorrectPicView(Context context, @Nullable AttributeSet attrs) {
+        super(context, attrs);
+        setLayerType(View.LAYER_TYPE_SOFTWARE, null);
+        paint = new Paint();
+        paint.setAntiAlias(true);
+        paint.setStrokeWidth(2);
+        paint.setColor(0x99FF0000);
+        //虚线样式
+        dashPathEffect = new DashPathEffect(new float[]{10, 8}, 0);
+        rectPinter = new Rect[4];
+        //左上角
+        rectPinter[0] = new Rect();
+        //右上角
+        rectPinter[1] = new Rect();
+        //左下角
+        rectPinter[2] = new Rect();
+        //右下角
+        rectPinter[3] = new Rect();
+    }
+
+    @Override
+    protected void onDraw(Canvas canvas) {
+        super.onDraw(canvas);
+        if (getDrawable() == null) {
+            return;
+        }
+        initPointer();
+        //画矫正区域框
+        drawBorderAndLine(canvas);
+        drawPointRect(canvas);
+    }
+
+    private void initPointer() {
+        if (dst == null) {
+            getImageInfo();
+            //初始化区域
+            Bitmap b = ((BitmapDrawable) getDrawable()).getBitmap();
+            dst = new float[8];
+            src = new float[8];
+            int bw = b.getWidth();
+            int bh = b.getHeight();
+            dst[0] = src[0] = 0;
+            dst[1] = src[1] = 0;
+            dst[2] = src[2] = bw;
+            dst[3] = src[3] = 0;
+            dst[4] = src[4] = 0;
+            dst[5] = src[5] = bh;
+            dst[6] = src[6] = bw;
+            dst[7] = src[7] = bh;
+            //初始化图像在视图上的点
+            viewPointer = new float[8];
+            viewPointer[0] = imageRect.left;
+            viewPointer[1] = imageRect.top;
+            viewPointer[2] = imageRect.right;
+            viewPointer[3] = imageRect.top;
+            viewPointer[4] = imageRect.left;
+            viewPointer[5] = imageRect.bottom;
+            viewPointer[6] = imageRect.right;
+            viewPointer[7] = imageRect.bottom;
+            setPointerRect(-1);
+        }
+    }
+
+    private void setPointerRect(int rectIndex) {
+        if (rectIndex == -1) {
+            //4个顶点区域
+            for (int i = 0; i < rectPinter.length; i++) {
+                int index = i * 2;
+                rectPinter[i].set((int) (viewPointer[index] - pointRadius), (int) (viewPointer[index + 1] - pointRadius), (int) (viewPointer[index] + pointRadius), (int) (viewPointer[index + 1] + pointRadius));
+            }
+        } else {
+            int index = rectIndex * 2;
+            rectPinter[rectIndex].set((int) (viewPointer[index] - pointRadius), (int) (viewPointer[index + 1] - pointRadius), (int) (viewPointer[index] + pointRadius), (int) (viewPointer[index + 1] + pointRadius));
+        }
+    }
+
+    private void drawBorderAndLine(Canvas canvas) {
+        //虚线
+        paint.setStyle(Paint.Style.STROKE);
+        //绘制长度为10的实线后再绘制长度为8的空白区域，0位间隔
+        paint.setPathEffect(dashPathEffect);
+        //绘制4个角的连线
+        canvas.drawLine(viewPointer[0], viewPointer[1], viewPointer[2], viewPointer[3], paint);
+        canvas.drawLine(viewPointer[2], viewPointer[3], viewPointer[6], viewPointer[7], paint);
+        canvas.drawLine(viewPointer[6], viewPointer[7], viewPointer[4], viewPointer[5], paint);
+        canvas.drawLine(viewPointer[4], viewPointer[5], viewPointer[0], viewPointer[1], paint);
+        paint.setPathEffect(null);
+    }
+
+    private void drawPointRect(Canvas canvas) {
+        for (int i = 0; i < rectPinter.length; i++) {
+            canvas.drawRect(rectPinter[i], paint);
+        }
+    }
+
+    private int controlPointerIndex;
+
+    @Override
+    public boolean dispatchTouchEvent(MotionEvent event) {
+        int x = (int) event.getX();
+        int y = (int) event.getY();
+        switch (event.getAction()) {
+            case MotionEvent.ACTION_DOWN:
+                controlPointerIndex = checkControlIndex(x, y);
+                if (controlPointerIndex == -1) {
+                    super.dispatchTouchEvent(event);
+                    event.setAction(MotionEvent.ACTION_CANCEL);
+                    return false;
+                }
+                break;
+            case MotionEvent.ACTION_MOVE:
+                int index = controlPointerIndex * 2;
+                viewPointer[index] = x;
+                viewPointer[index + 1] = y;
+                setPointerRect(controlPointerIndex);
+                invalidate();
+                break;
+            case MotionEvent.ACTION_UP:
+            case MotionEvent.ACTION_CANCEL:
+
+                break;
+
+        }
+        return true;
+    }
+
+    private int checkControlIndex(int x, int y) {
+        for (int i = 0; i < rectPinter.length; i++) {
+            if (rectPinter[i].contains(x, y)) {
+                return i;
+            }
+        }
+        return -1;
+    }
+
+    public Bitmap createCorrectBitmap() {
+        Bitmap b = ((BitmapDrawable) getDrawable()).getBitmap();
+        int width = b.getWidth();
+        int height = b.getHeight();
+        //将视图上的点映射到图像上进行矫正
+        float[] values = new float[9];
+        getImageMatrix().getValues(values);
+        float scaleWidth = values[0];  //宽方向的显示比例
+        float scaleHeight = values[4]; //高方向的显示比例
+        for (int i = 0; i < rectPinter.length; i++) {
+            int index = i * 2;
+            src[index] = (viewPointer[index] - imageRect.left) / scaleWidth;
+            src[index + 1] = (viewPointer[index + 1] - imageRect.top) / scaleHeight;
+        }
+        Bitmap result = Bitmap.createBitmap(width, height, b.getConfig());
+        Canvas c = new Canvas(result);
+        Matrix matrix = new Matrix();
+        matrix.setPolyToPoly(src, 0, dst, 0, 4);
+        c.drawBitmap(b, matrix, null);
+        return result;
+    }
+
+    private Rect getImageInfo() {
+        Rect rect = getDrawable().getBounds();
+        float[] values = new float[9];
+        getImageMatrix().getValues(values);
+
+        float scaleWidth = rect.width() * values[0];
+        float scaleHeight = rect.height() * values[4];
+        float left = values[2];
+        float top = values[5];
+        float right = left + scaleWidth;
+        float bottom = top + scaleHeight;
+        if (null == imageRect) {
+            imageRect = new Rect((int) left, (int) top, (int) right, (int) bottom);
+        } else {
+            imageRect.set((int) left, (int) top, (int) right, (int) bottom);
+        }
+        return imageRect;
+    }
+}
