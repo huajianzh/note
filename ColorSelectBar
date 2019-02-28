@@ -1,0 +1,143 @@
+package com.byd.view;
+
+import android.content.Context;
+import android.graphics.Canvas;
+import android.graphics.Color;
+import android.graphics.LinearGradient;
+import android.graphics.Paint;
+import android.graphics.Point;
+import android.graphics.PorterDuff;
+import android.graphics.PorterDuffXfermode;
+import android.graphics.Rect;
+import android.graphics.Shader;
+import android.support.annotation.Nullable;
+import android.util.AttributeSet;
+import android.view.MotionEvent;
+import android.view.View;
+
+import com.byd.textureviewdemo.R;
+
+/**
+ * Created by zhang.huajian on 2019/2/28.
+ * Email: zhang.huajian2@byd.com
+ */
+public class ColorSelectBar extends View {
+
+    /**
+     * 用于构造色条的颜色数组，利用android的LinearGradient类
+     */
+    private static final int[] COLORS = new int[]{0xFFFF0000, 0xFFFF00FF,
+            0xFF0000FF, 0xFF00FFFF, 0xFF00FF00, 0xFFFFFF00, 0xFFFFFFFF,
+            0xFF000000};
+
+    //视图宽高
+    private int width, height;
+    //拖块半径
+    private int thumbRadius;
+    //进度半径
+    private int progressRadius;
+    //底部颜色画笔
+    private Paint barPaint;
+    //绘制拖块的画笔
+    private Paint mPaint;
+    private int centerY;
+    //当前拖块的偏移
+    private int currentThumbOffset;
+
+    public ColorSelectBar(Context context) {
+        this(context, null);
+    }
+
+    public ColorSelectBar(Context context, @Nullable AttributeSet attrs) {
+        super(context, attrs);
+        barPaint = new Paint();
+        mPaint = new Paint();
+        mPaint.setAntiAlias(true);
+        mPaint.setColor(context.getResources().getColor(R.color.colorAccent));
+    }
+
+    @Override
+    protected void onDraw(Canvas canvas) {
+        //背景颜色
+        drawBackground(canvas);
+        drawThumb(canvas);
+    }
+
+    private void drawBackground(Canvas canvas) {
+        int leftCenterX = thumbRadius + progressRadius;
+        int rightCenterX = width - thumbRadius - progressRadius;
+        //背景左侧圆
+        canvas.drawCircle(leftCenterX, centerY, progressRadius, barPaint);
+        //背景右侧圆
+        canvas.drawCircle(rightCenterX, centerY, progressRadius, barPaint);
+        //中间矩形
+        canvas.drawRect(new Rect(leftCenterX, centerY - progressRadius, rightCenterX, centerY + progressRadius), barPaint);
+    }
+
+    private void drawThumb(Canvas canvas){
+        int color = getCurrentColor();
+        mPaint.setColor(color);
+        canvas.drawCircle(currentThumbOffset,centerY,thumbRadius,mPaint);
+    }
+
+    @Override
+    protected void onMeasure(int widthMeasureSpec, int heightMeasureSpec) {
+        width = calcSize(widthMeasureSpec, 120);
+        height = calcSize(heightMeasureSpec, 40);
+        setMeasuredDimension(width, height);
+        thumbRadius = height >> 1;
+        progressRadius = thumbRadius - 10;
+        //画的背景部分在前后均有一个拖块半径的空余
+        int startX = thumbRadius;
+        centerY = height >> 1;
+        int endX = width - thumbRadius;
+        barPaint.setShader(new LinearGradient(startX, centerY, endX, centerY, COLORS, null, Shader.TileMode.CLAMP));
+        //默认颜色在最左侧
+        currentThumbOffset = thumbRadius;
+    }
+
+    @Override
+    public boolean onTouchEvent(MotionEvent event) {
+        currentThumbOffset = (int) event.getX();
+        if (currentThumbOffset <= thumbRadius) {
+            currentThumbOffset = thumbRadius;
+        }
+        if (currentThumbOffset >= width - thumbRadius) {
+            currentThumbOffset = width - thumbRadius;
+        }
+        invalidate();
+        return true;
+    }
+
+    private int ave(int s, int t, int unit, int step) {
+        return s + (t - s) * step / unit;
+    }
+
+    /**
+     * 获取当前所在区间，再根据颜色变换算法获取颜色值
+     */
+    private int getCurrentColor() {
+        int unit = width / (COLORS.length - 1);
+        int position = currentThumbOffset - thumbRadius;
+        int i = position / unit;
+        int step = position % unit;
+        if (i >= COLORS.length - 1) return COLORS[COLORS.length - 1];
+        int c0 = COLORS[i];
+        int c1 = COLORS[i + 1];
+
+        int a = ave(Color.alpha(c0), Color.alpha(c1), unit, step);
+        int r = ave(Color.red(c0), Color.red(c1), unit, step);
+        int g = ave(Color.green(c0), Color.green(c1), unit, step);
+        int b = ave(Color.blue(c0), Color.blue(c1), unit, step);
+
+        return Color.argb(a, r, g, b);
+    }
+
+    private int calcSize(int measureSpec, int defSize) {
+        int mode = MeasureSpec.getMode(measureSpec);
+        if (mode == MeasureSpec.EXACTLY) {
+            return MeasureSpec.getSize(measureSpec);
+        }
+        return defSize;
+    }
+}
