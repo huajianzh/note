@@ -1,0 +1,71 @@
+处理WebView长按图像弹出“保存图片”、“查看图片”等效果的功能，主要涉及WebView的以下3个方法：
+1、获取选择的目标
+   WebView.HitTestResult result = ((WebView) v).getHitTestResult();
+2、获取选择的目标类型
+   int type = result.getType();
+3、获取选择的目标的数据（图像则表示地址）
+   String imgUrl = result.getExtra();
+		
+	
+		//设置长按监听，长按图片显示保存
+    mWebView.setOnTouchListener(onWebViewTouch);
+    mWebView.setOnLongClickListener(onWebViewLongClick);
+		
+		//处理WebView长按图片显示保存图片
+    private int posX, posY;
+    private View.OnTouchListener onWebViewTouch = new View.OnTouchListener() {
+        @Override
+        public boolean onTouch(View v, MotionEvent event) {
+        		//记录长按位置，以便于在相应位置显示弹出框
+            posX = (int) event.getRawX();
+            posY = (int) event.getRawY();
+            return false;
+        }
+    };
+
+    private View.OnLongClickListener onWebViewLongClick = new View.OnLongClickListener() {
+        @Override
+        public boolean onLongClick(View v) {
+            //获取选择的目标
+            WebView.HitTestResult result = ((WebView) v).getHitTestResult();
+            //获取选择的目标类型
+            int type = result.getType();
+            switch (type) {
+                case WebView.HitTestResult.UNKNOWN_TYPE:    //未知类型
+                    break;
+                case WebView.HitTestResult.PHONE_TYPE:    //电话类型
+                    break;
+                case WebView.HitTestResult.EMAIL_TYPE:    //电子邮件类型
+                    break;
+                case WebView.HitTestResult.GEO_TYPE:   // 地图类型
+                    break;
+                case WebView.HitTestResult.SRC_ANCHOR_TYPE:    //超链接类型
+                    break;
+                case WebView.HitTestResult.SRC_IMAGE_ANCHOR_TYPE:    //带有链接的图片类型
+                    break;
+                case WebView.HitTestResult.IMAGE_TYPE:    //单纯的图片类型
+                    //获取选择的目标的数据（图像则表示地址）
+                    String imgUrl = result.getExtra();
+                    showImageOptWindow(imgUrl);
+                    break;
+                case WebView.HitTestResult.EDIT_TEXT_TYPE:    //选中的文字类型
+                    break;
+            }
+            return true;
+        }
+    };
+
+    private PopupWindow imageOptWindow;
+    private void showImageOptWindow(String url){
+        if(null == imageOptWindow){
+            View layout = getLayoutInflater().inflate(R.layout.img_opt_window,null);
+            layout.findViewById(R.id.view_save).setOnClickListener(onWindowItemClick);
+            layout.findViewById(R.id.view_show).setOnClickListener(onWindowItemClick);
+            imageOptWindow  = new PopupWindow(layout,300,ViewGroup.LayoutParams.WRAP_CONTENT);
+            imageOptWindow.setFocusable(true);
+            imageOptWindow.setOutsideTouchable(true);
+            imageOptWindow.setBackgroundDrawable(new ColorDrawable());
+        }
+        imageOptWindow.getContentView().setTag(url);
+        imageOptWindow.showAtLocation(mainView, Gravity.LEFT|Gravity.TOP,posX,posY);
+    }
