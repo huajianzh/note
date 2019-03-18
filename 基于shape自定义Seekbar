@@ -1,0 +1,91 @@
+基于shape的SeekBar定制
+
+进度以及背景 seek_progress_drawable.xml 
+<?xml version="1.0" encoding="utf-8"?>
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+    <item android:id="@android:id/background">
+        <shape>
+            <corners android:radius="5dp" />
+            <solid android:color="#55999999" />
+        </shape>
+    </item>
+
+    <item android:id="@android:id/secondaryProgress">
+        <clip>
+            <shape>
+                <corners android:radius="5dp" />
+                <solid android:color="#880084ff" />
+            </shape>
+        </clip>
+    </item>
+
+    <item android:id="@android:id/progress">
+        <clip>
+            <shape>
+                <corners android:radius="5dp" />
+                <solid android:color="#ff0084ff" />
+            </shape>
+        </clip>
+    </item>
+</layer-list>
+
+拖块按钮 btn_nomal.xml
+<?xml version="1.0" encoding="utf-8"?>
+<shape xmlns:android="http://schemas.android.com/apk/res/android"
+    android:shape="oval">
+
+    <solid android:color="#ff0084ff"  />
+
+    <size
+        android:width="18dp"
+        android:height="18dp" />
+
+    <stroke
+        android:width="5dp"
+        android:color="#ffffffff" />
+</shape>
+
+btn_press.xml
+<?xml version="1.0" encoding="utf-8"?>
+<shape xmlns:android="http://schemas.android.com/apk/res/android"
+    android:shape="oval">
+
+    <solid android:color="@color/colorAccent"  />
+
+    <size
+        android:width="18dp"
+        android:height="18dp" />
+
+    <stroke
+        android:width="5dp"
+        android:color="#ffffffff" />
+</shape>
+
+拖块按钮状态drawable btn.xml
+<?xml version="1.0" encoding="utf-8"?>
+<selector xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- 按下状态 -->
+    <item android:drawable="@drawable/seek_thumb_drawable_press" android:state_pressed="true" />
+
+    <!-- 焦点状态 -->
+    <item android:drawable="@drawable/seek_thumb_drawable_press" android:state_focused="true" />
+
+    <!-- 选择状态 -->
+    <item android:drawable="@drawable/seek_thumb_drawable_press" android:state_selected="true" />
+
+    <!-- 默认状态 -->
+    <item android:drawable="@drawable/seek_thumb_drawable_nomal" />
+</selector>
+
+SeekBar的配置
+<SeekBar
+  android:id="@+id/seek_video_progress"
+  android:layout_width="match_parent"
+  android:layout_height="wrap_content"
+  android:progressDrawable="@drawable/seek_progress_drawable"
+  android:thumb="@drawable/btn"
+  android:maxHeight="5dp"
+  android:minHeight="3dp"
+  android:thumbOffset="10dp"/>
+
+其中 android:maxHeight="5dp"和android:minHeight="3dp"这两个属性可以控制中间进度的高度可以实现拖块比进度高，进度显示和拖块垂直居中对齐的效果
