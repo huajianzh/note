@@ -1,0 +1,108 @@
+关于app更新的安装问题
+常见的安装有静默安装或者系统安装器安装，前者可以在无弹框的情况下安装，后者需要用户确认。
+静默安装常见的方式就是pm install命令，但是需要有系统签名才可以，给应用加上系统签名过程如下：
+1、前提：应用必须是系统应用
+	使用系统权限的应用需要在AndroidManifest.xml中声明android:sharedUserId="android.uid.system"
+2、找到平台签名文件“platform.pk8”和“platform.x509.pem”，可以在源码中找到，国内查看源码网址：https://www.androidos.net.cn/sourcecode
+	文件位置 android/build/target/product/security/
+3、签名工具“signapk.jar”，可以在源码中找到
+	文件位置：android/prebuilts/sdk/tools/lib
+将签名文件以及签名工具放在同一目录下，执行以下指令进行签名：
+	java -jar signapk.jar platform.x509.pem platform.pk8 Demo.apk signedDemo.apk 或者 java -cp signapk.jar platform.x509.pem Demo.pk8 DDD.apk signedDemo.apk
+	其中Demo.apk表示需要签名的apk，而signedDemo.apk表示签名后的apk
+最后需要将应用push到/system/app/*目录下即可成为带系统签名的系统应用
+
+静默安装：
+	在具有以上签名环境下，可以结合系统的pm install指令完成静默安装：
+	完整命令如：pm install -i com.abc.apkintaller -r /sdcard/test.apk   其中com.abc.apkintaller表示执行安装名的应用包名，注意不是被安装的应用包名
+	public static boolean installSilence(Application app, String apkPath) {
+    Process process = null;
+    BufferedReader successResult = null;
+    BufferedReader errorResult = null;
+    StringBuilder successMsg = new StringBuilder();
+    StringBuilder errorMsg = new StringBuilder();
+    try {
+        process = new ProcessBuilder("pm", "install", "-i", app.getPackageName(), "-r", apkPath).start();
+        successResult = new BufferedReader(new InputStreamReader(process.getInputStream()));
+        errorResult = new BufferedReader(new InputStreamReader(process.getErrorStream()));
+        String s;
+        while ((s = successResult.readLine()) != null) {
+            successMsg.append(s);
+        }
+        while ((s = errorResult.readLine()) != null) {
+            errorMsg.append(s);
+        }
+    } catch (Exception e) {
+        e.printStackTrace();
+    } finally {
+        try {
+            if (successResult != null) {
+                successResult.close();
+            }
+            if (errorResult != null) {
+                errorResult.close();
+            }
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+        if (process != null) {
+            process.destroy();
+        }
+    }
+    Log.e("result", "" + errorMsg.toString());
+    //如果含有“success”单词则认为安装成功
+    return successMsg.toString().equalsIgnoreCase("success");
+}
+安装需要的权限：
+<uses-permission android:name="android.permission.INSTALL_PACKAGES" />
+<uses-permission android:name="android.permission.DELETE_PACKAGES" />
+需要的共享进程配置:
+android:sharedUserId="android.uid.system"
+需要的系统签名（在前面）
+需要的push到/system/app/*
+
+当然啦，在很多更新中除了静默安装也有普通的安装方法（也就是弹出框在用户确认之后，系统安装器来安装）
+public static void installBySystem(Context context, String apkPath) {
+    Intent localIntent = new Intent(Intent.ACTION_VIEW);
+    localIntent.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+    Uri uri;
+    //Android7.0+禁止应用对外暴露file://uri，改为content://uri；具体参考FileProvider
+    if (Build.VERSION.SDK_INT >= 24) {
+        uri = FileProvider.getUriForFile(context, "com.abc.apkinstaller.fileProvider", new File(apkPath)); //获取地址时第二个参数和manifest中的FileProvider的authorities必须一样
+        localIntent.setFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
+    } else {
+        uri = Uri.fromFile(new File(apkPath));
+    }
+    //打开apk文件
+    localIntent.setDataAndType(uri, "application/vnd.android.package-archive");
+    context.startActivity(localIntent);
+}
+默认的安装方式需要配置以下权限：
+	<uses-permission android:name="android.permission.REPLACE_EXISTING_PACKAGE"/>
+  <!--8.0必要权限-->
+  <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES"/>
+  
+系统安装的方式需要注意在7.0以上不能直接传递file:///storage/...这类地址，因此需要配置为FileProvider的方式
+1、manifest中配置
+	<provider
+    android:name="android.support.v4.content.FileProvider"
+    android:authorities="${applicationId}.fileProvider"     --------${applicationId}为当前应用包名 .fileprovider内容提供者的名字
+    android:grantUriPermissions="true"
+    android:exported="false">
+     <!--  元数据    -->
+    <meta-data
+        android:name="android.support.FILE_PROVIDER_PATHS"
+        android:resource="@xml/file_paths" />               ----------file_paths     见第2步
+	</provider>
+2、在xml文件夹中创建file_paths.xml     (res\xml\file_paths.xml)
+	<?xml version="1.0" encoding="utf-8"?>
+	<paths xmlns:android="http://schemas.android.com/apk/res/android">
+	    <external-path path="Android/data/com.abc.apkinstaller/" name="files_root" />
+	    <external-path path="." name="external_storage_root" />
+	</paths>
+其中paths的配置包括：
+	<files-path name="name" path="path" /> 物理路径相当于Context.getFilesDir() + /path/
+	<cache-path name="name" path="path" /> 物理路径相当于Context.getCacheDir() + /path/
+	<external-path name="name" path="path" /> 物理路径相当于Environment.getExternalStorageDirectory() + /path/
+	<external-files-path name="name" path="path" /> 物理路径相当于Context.getExternalFilesDir(String) + /path/
+	<external-cache-path name="name" path="path" /> 物理路径相当于Context.getExternalCacheDir() + /path/
