@@ -1,0 +1,316 @@
+如何将普通的View变成类似CheckBox、RadiuButton那样相应checked状态
+1、关于状态的定义一般会借助selector的定义也就是StateListDrawable对象来定义不同状态不同效果。
+2、针对颜色状态也可以在res/color/下定义selector文件实现ColorStateList对象对不同状态的颜色变化。
+
+以上两个前提下，针对系统普通的View其实都可以响应pressed，enabled,focused,selected等等普通状态，针对不同状态显示不同效果则监听状态变化即可。如果要实现自定义状态变化，如checked，则需要的步骤如下：
+ 这里以实现一个卡片功能为例，卡片项TabItem，卡片管理TabGroup，啊，其实就是模仿一下RadiuButton和RadiuGroup
+1、给View新增转态，如这里新增checked状态，这个状态在系统的CompoundButton类中有定义：
+	@Override
+  protected int[] onCreateDrawableState(int extraSpace) {
+      final int[] drawableState = super.onCreateDrawableState(extraSpace + 1);
+      if (isChecked()) {
+          mergeDrawableStates(drawableState, CHECKED_STATE_SET);
+      }
+      return drawableState;
+  }
+2、监听状态变化，更新效果
+	//监听到Drawable状态变化
+  @Override
+  protected void drawableStateChanged() {
+      super.drawableStateChanged();
+      //通知Drawable更新状态
+      final Drawable buttonDrawable = drawableTop;
+      if (buttonDrawable != null && buttonDrawable.isStateful()
+              && buttonDrawable.setState(getDrawableState())) {
+          invalidateDrawable(buttonDrawable);
+      }
+      invalidate();
+  }
+其中在效果的更新上需要获取Drawable状态，这个在View中也提供了getDrawableState()这么一个方法可以得到。
+以下以一个选项卡的定义为例，这里定义一个有图标在文本上面的选项卡：
+
+属性定义：
+	<declare-styleable name="TabItem">
+    <attr name="text" format="string"/>
+    <attr name="drawableTop" format="reference"/>
+    <attr name="checked" format="boolean"/>
+    <attr name="textColor" format="color"/>
+    <attr name="textSize" format="dimension"/>
+	</declare-styleable>
+选项卡视图定义：
+	public class TabItem extends View {
+    //选中状态对应的CompoundButton的checked状态，这里可以直接引用系统资源
+    private static final int[] CHECKED_STATE_SET = {
+            android.R.attr.state_checked
+    };
+    //图像和文本之间的间距
+    private static final int DRAWABLE_PADDING = 3;
+    private boolean checked;
+    private ColorStateList textColor = null;
+    private int textSize = 15;
+    private Drawable drawableTop = null;
+    private Paint paint;
+    private CharSequence text;
+
+    public TabItem(Context context) {
+        this(context, null, 0, 0);
+    }
+
+    public TabItem(Context context, @Nullable AttributeSet attrs) {
+        this(context, attrs, 0, 0);
+    }
+
+    public TabItem(Context context, @Nullable AttributeSet attrs, int defStyleAttr) {
+        this(context, attrs, defStyleAttr, 0);
+    }
+
+    public TabItem(Context context, @Nullable AttributeSet attrs, int defStyleAttr, int defStyleRes) {
+        super(context, attrs, defStyleAttr, defStyleRes);
+        final TypedArray a = context.obtainStyledAttributes(
+                attrs, R.styleable.TabItem, defStyleAttr, defStyleRes);
+        final boolean checked = a.getBoolean(R.styleable.TabItem_checked, false);
+        textColor = a.getColorStateList(R.styleable.TabItem_textColor);
+        textSize = a.getDimensionPixelSize(R.styleable.TabItem_textSize, textSize);
+        drawableTop = a.getDrawable(R.styleable.TabItem_drawableTop);
+        text = a.getText(R.styleable.TabItem_text);
+        a.recycle();
+        setClickable(true);
+        setLongClickable(true);
+        paint = new Paint();
+        paint.setAntiAlias(true);
+        paint.setTextSize(textSize);
+        setChecked(checked);
+    }
+
+    @Override
+    protected void onDraw(Canvas canvas) {
+        //计算内容总高度
+        int drawableWidth = 0, drawableHeight = 0;
+        if (drawableTop != null) {
+            drawableHeight = drawableTop.getIntrinsicHeight();
+            drawableWidth = drawableTop.getIntrinsicWidth();
+        }
+        Rect textRect = new Rect();
+        paint.getTextBounds(text.toString(), 0, text.length(), textRect);
+        float textHeight = textRect.height();
+        float textWidth = textRect.width();
+        float contentHeight = drawableHeight + textHeight + DRAWABLE_PADDING;
+        //图标左上角
+        int t = (int) ((getHeight() - contentHeight) / 2);
+        int l = (getWidth() - drawableWidth) / 2;
+        drawableTop.setBounds(l, t, l + drawableWidth, t + drawableHeight);
+        //画图标
+        drawableTop.draw(canvas);
+        //画文本
+        if (null != textColor) {
+            //根据Drawable状态加载文本颜色
+            paint.setColor(textColor.getColorForState(getDrawableState(), 0));
+        }
+        //文本的x
+        int x = (int) ((getWidth()-textWidth)/2);
+        int y = (int) (t+drawableHeight+DRAWABLE_PADDING+textHeight);
+        canvas.drawText(text.toString(),x,y,paint);
+
+    }
+
+    public void setChecked(boolean checked) {
+        if (this.checked != checked) {
+            this.checked = checked;
+            //更新Drawable状态，该方法执行中会触发drawableStateChanged()方法
+            refreshDrawableState();
+            if (onCheckedChangeListener != null) {
+                onCheckedChangeListener.onCheckedChanged(this, checked);
+            }
+        }
+    }
+
+    //监听到Drawable状态变化
+    @Override
+    protected void drawableStateChanged() {
+        super.drawableStateChanged();
+        //通知Drawable更新状态
+        final Drawable buttonDrawable = drawableTop;
+        if (buttonDrawable != null && buttonDrawable.isStateful()
+                && buttonDrawable.setState(getDrawableState())) {
+            invalidateDrawable(buttonDrawable);
+        }
+        invalidate();
+    }
+
+    public boolean isChecked() {
+        return checked;
+    }
+
+    /**
+     * 给Drawable添加状态，这个是相应一些state变化的关键，如果没有添加状态则默认只可以监听
+     * VIEW_STATE_PRESSED，ENABLED,VIEW_STATE_ENABLED，VIEW_STATE_FOCUSED,VIEW_STATE_SELECTED等基本状态
+     * 这里添加支持checked状态
+     * @param extraSpace
+     * @return
+     */
+    @Override
+    protected int[] onCreateDrawableState(int extraSpace) {
+        final int[] drawableState = super.onCreateDrawableState(extraSpace + 1);
+        if (isChecked()) {
+            mergeDrawableStates(drawableState, CHECKED_STATE_SET);
+        }
+        return drawableState;
+    }
+
+    public interface OnCheckedChangeListener{
+        void onCheckedChanged(TabItem view, boolean isChecked);
+    }
+
+    private OnCheckedChangeListener onCheckedChangeListener;
+
+    public void setOnCheckedChangeListener(OnCheckedChangeListener onCheckedChangeListener) {
+        this.onCheckedChangeListener = onCheckedChangeListener;
+    }
+
+    //处理点击时改变状态，目前这里的功能是做单项选择，所以只要处理选中，取消选中由TabGroup来处理
+    @Override
+    public boolean performClick() {
+        if(!checked){
+            setChecked(true);
+        }
+        final boolean handled = super.performClick();
+        if (!handled) {
+            // View only makes a sound effect if the onClickListener was
+            // called, so we'll need to make one here instead.
+            playSoundEffect(SoundEffectConstants.CLICK);
+        }
+        return handled;
+    }
+
+    public CharSequence getText() {
+        return text;
+    }
+  }
+卡片管理容器的定义，该管理主要是监听其孩子的选中变化，当有新的孩子被选中时则取消选中原来被选中的孩子即可。
+public class TabGroup extends LinearLayout {
+    private int mCheckedId = -1;
+    private TabItem.OnCheckedChangeListener onChildCheckListener;
+
+    public TabGroup(Context context) {
+        super(context);
+        init();
+        setOrientation(VERTICAL);
+    }
+
+    public TabGroup(Context context, @Nullable AttributeSet attrs) {
+        super(context, attrs);
+        init();
+    }
+
+    private void init() {
+        onChildCheckListener = new CheckedStateTracker();
+    }
+
+    @Override
+    public void addView(View child, int index, ViewGroup.LayoutParams params) {
+        //初始化子视图的选中状态
+        if (child instanceof TabItem) {
+            final TabItem button = (TabItem) child;
+            if (button.isChecked()) {
+                if (mCheckedId != -1) {
+                    setCheckedStateForView(mCheckedId, false);
+                }
+                setCheckedId(button.getId());
+            }
+            button.setOnCheckedChangeListener(onChildCheckListener);
+        }
+        super.addView(child, index, params);
+    }
+
+    private void setCheckedStateForView(int viewId, boolean checked) {
+        View checkedView = findViewById(viewId);
+        if (checkedView != null && checkedView instanceof TabItem) {
+            ((TabItem) checkedView).setChecked(checked);
+        }
+    }
+
+    private void setCheckedId(int id) {
+        mCheckedId = id;
+        if (mOnCheckedChangeListener != null) {
+            mOnCheckedChangeListener.onCheckedChanged(this, mCheckedId);
+        }
+    }
+
+    public void check(int id) {
+        // don't even bother
+        if (id != -1 && (id == mCheckedId)) {
+            return;
+        }
+        if (mCheckedId != -1) {
+            setCheckedStateForView(mCheckedId, false);
+        }
+        if (id != -1) {
+            setCheckedStateForView(id, true);
+        }
+        setCheckedId(id);
+    }
+
+    private class CheckedStateTracker implements TabItem.OnCheckedChangeListener {
+        public void onCheckedChanged(TabItem buttonView, boolean isChecked) {
+            //当有新的卡片被选中时取消旧的选择，选中新的卡片
+            if (isChecked) {
+                //取消旧的
+                if (mCheckedId != -1) {
+                    setCheckedStateForView(mCheckedId, false);
+                }
+                int id = buttonView.getId();
+                //选择新的
+                setCheckedId(id);
+            }
+        }
+    }
+
+    private OnCheckedChangeListener mOnCheckedChangeListener;
+
+    public void setOnCheckedChangeListener(OnCheckedChangeListener onCheckedChangeListener) {
+        this.mOnCheckedChangeListener = onCheckedChangeListener;
+    }
+
+    public interface OnCheckedChangeListener {
+        void onCheckedChanged(TabGroup group, int checkedId);
+    }
+
+}
+
+使用：
+<com.abc.view.TabGroup
+    android:id="@+id/tab_group"
+    android:layout_width="@dimen/tab_size"
+    android:layout_height="match_parent"
+    android:background="@android:color/white"
+    android:orientation="vertical"
+    android:paddingTop="10dp">
+    
+    <com.abc.view.TabItem
+        android:id="@+id/tab_money"
+        style="@style/TabItemVerticalStyle"
+        app:drawableTop="@drawable/tab_money_drawable"
+        app:text="@string/tab_money" 
+        app:checked="true"/>
+
+    <com.abc.view.TabItem
+        android:id="@+id/tab_bueaty"
+        style="@style/TabItemVerticalStyle"
+        app:drawableTop="@drawable/icon_bueaty_drawable"
+        app:text="@string/tab_bueaty" />
+
+    <com.abc.view.TabItem
+        android:id="@+id/tab_car"
+        style="@style/TabItemVerticalStyle"
+        app:drawableTop="@drawable/tab_car_drawable"
+        app:text="@string/tab_car" />
+
+</com.abc.view.TabGroup>
+这里每个卡片的宽高以及文本颜色、大小等配置都一样，所以直接定义样式，这里注意的是自定义属性在样式中申明时不需要添加前缀。
+<style name="TabItemVerticalStyle">
+    <item name="android:layout_width">match_parent</item>
+    <item name="android:layout_height">0dp</item>
+    <item name="android:layout_weight">1</item>
+    <item name="textColor">@color/tab_text_color</item>
+    <item name="textSize">18sp</item>
+</style>
