@@ -69,3 +69,20 @@
         imageOptWindow.getContentView().setTag(url);
         imageOptWindow.showAtLocation(mainView, Gravity.LEFT|Gravity.TOP,posX,posY);
     }
+    
+    WebView完整配置
+    	webSettings.setSupportZoom(false);
+        webSettings.setBlockNetworkImage(true);
+        webSettings.setDefaultTextEncodingName("utf-8");
+        webSettings.setAllowFileAccess(true);
+        webSettings.setRenderPriority(WebSettings.RenderPriority.HIGH);
+        webSettings.setLayoutAlgorithm(WebSettings.LayoutAlgorithm.NARROW_COLUMNS);
+        webSettings.setJavaScriptEnabled(true);
+        webSettings.setDomStorageEnabled(true);//开启本地DOM存储(解决WebView加载出现空白的问题)
+        webSettings.setJavaScriptCanOpenWindowsAutomatically(true);//设置js可以直接打开窗口，如window.open()，默认为false
+        webSettings.setAppCacheEnabled(true);
+        webSettings.setUseWideViewPort(true);//设置此属性，可任意比例缩放。大视图模式
+        webSettings.setLoadWithOverviewMode(true);//和setUseWideViewPort(true)一起解决网页自适应问题
+        webSettings.setLoadsImagesAutomatically(true); // 加载图片
+        webSettings.setMediaPlaybackRequiresUserGesture(false);//播放音频，多媒体需要用户手动？设置为false为可自动播放
+        webSettings.setTextZoom(100); //解决字体变大导致页面错乱的问题
