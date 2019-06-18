@@ -1,0 +1,86 @@
+//检测服务运行情况重新启动目标服务
+//5.0以上系统一般使用JobService代替AlarmManager处理定时任务，会更省资源
+public class MJobService extends JobService {
+    private static final int JOB_ID = 123;
+
+    public MJobService() {
+    }
+
+    @Override
+    public boolean onStartJob(JobParameters params) {
+        try {
+            String serName = params.getExtras().getString("service_name");
+            Log.d("m_tag", "start--check:" + serName + " " + System.currentTimeMillis());
+            //判断保活的service是否被杀死
+            if (null != serName && !"".equals(serName) && !isServiceRunning(serName)) {
+                Class service = getClassLoader().loadClass(serName);
+                //重启service
+                getApplication().startService(new Intent(getApplicationContext(), service));
+            }
+            //创建一个新的JobScheduler任务
+            startSchedule(getApplicationContext(), serName);
+            jobFinished(params, false);
+            Log.d("m_tag", "handleMessage task end--");
+            return true;
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+        return false;
+    }
+
+    @Override
+    public boolean onStopJob(JobParameters params) {
+        return false;
+    }
+
+    public static void startSchedule(Context context, String serviceName) {
+        ComponentName serviceComponent = new ComponentName(context, MJobService.class);
+        JobScheduler jobScheduler = (JobScheduler) context.getSystemService(Context.JOB_SCHEDULER_SERVICE);
+        jobScheduler.cancel(JOB_ID);
+        JobInfo.Builder builder = new JobInfo.Builder(MJobService.JOB_ID, serviceComponent);
+//            builder.setPeriodic(15 * 60 * 1000, 5 * 60 * 1000);
+//            builder.setPeriodic(60 * 1000);
+        if (Build.VERSION.SDK_INT >= 24) {
+            builder.setMinimumLatency(JobInfo.DEFAULT_INITIAL_BACKOFF_MILLIS); //执行的最小延迟时间
+            builder.setOverrideDeadline(JobInfo.DEFAULT_INITIAL_BACKOFF_MILLIS);  //执行的最长延时时间
+            builder.setBackoffCriteria(JobInfo.DEFAULT_INITIAL_BACKOFF_MILLIS, JobInfo.BACKOFF_POLICY_LINEAR);//线性重试方案
+        } else {
+            builder.setPeriodic(JobInfo.DEFAULT_INITIAL_BACKOFF_MILLIS);
+        }
+        builder.setPersisted(true);  // 设置设备重启时，执行该任务
+        builder.setRequiredNetworkType(JobInfo.NETWORK_TYPE_ANY);
+        builder.setRequiresCharging(true); //充电执行
+        PersistableBundle persiBundle = new PersistableBundle();
+        persiBundle.putString("service_name", serviceName);
+        builder.setExtras(persiBundle);
+        int ret = jobScheduler.schedule(builder.build());
+        if (ret == JobScheduler.RESULT_SUCCESS) {
+            Log.d("m_tag", "Job scheduled successfully");
+        } else {
+            Log.d("m_tag", "Job scheduling failed");
+        }
+    }
+
+    public boolean isServiceRunning(String clsName) {
+        ActivityManager manager = (ActivityManager) getSystemService(Context.ACTIVITY_SERVICE);
+        for (ActivityManager.RunningServiceInfo service : manager.getRunningServices(Integer.MAX_VALUE)) {
+            if (clsName.equals(service.service.getClassName())) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+		//应用在最近启动列表中被划掉则调用此方法而不是onDestroy
+    @Override
+    public void onTaskRemoved(Intent rootIntent) {
+        super.onTaskRemoved(rootIntent);
+        Log.d("m_tag", "JobService onTaskRemoved");
+    }
+
+    @Override
+    public void onDestroy() {
+        super.onDestroy();
+        Log.d("m_tag", "JobService onDestroy");
+    }
+}
