@@ -45,11 +45,14 @@ public class MJobService extends JobService {
             builder.setOverrideDeadline(JobInfo.DEFAULT_INITIAL_BACKOFF_MILLIS);  //执行的最长延时时间
             builder.setBackoffCriteria(JobInfo.DEFAULT_INITIAL_BACKOFF_MILLIS, JobInfo.BACKOFF_POLICY_LINEAR);//线性重试方案
         } else {
+            //设置时间间隔，单位毫秒,该方法不能和
+            //setMinimumLatency、setOverrideDeadline这两个同时调用，否则会报
             builder.setPeriodic(JobInfo.DEFAULT_INITIAL_BACKOFF_MILLIS);
         }
         builder.setPersisted(true);  // 设置设备重启时，执行该任务
         builder.setRequiredNetworkType(JobInfo.NETWORK_TYPE_ANY);
         builder.setRequiresCharging(true); //充电执行
+//        builder.setRequiresDeviceIdle(true); //是否空闲时执行，不能跟setBackoffCriteria一起使用
         PersistableBundle persiBundle = new PersistableBundle();
         persiBundle.putString("service_name", serviceName);
         builder.setExtras(persiBundle);
