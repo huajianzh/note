@@ -1,0 +1,751 @@
+package com.abc.util;
+
+import android.media.MediaCodec;
+import android.media.MediaExtractor;
+import android.media.MediaFormat;
+import android.media.MediaMuxer;
+import android.util.Log;
+
+import java.io.File;
+import java.io.IOException;
+import java.nio.ByteBuffer;
+import java.util.ArrayList;
+import java.util.Iterator;
+import java.util.List;
+
+/**
+ * 媒体工具类，功能：视频裁剪，视频合成
+ */
+public class MediaUtil {
+    private static final String TAG = "m_tag";
+    private final static int ALLOCATE_BUFFER = 500 * 1024;
+    private static volatile MediaUtil instance;
+
+    private MediaUtil() {
+    }
+
+    public static MediaUtil getInstance() {
+        synchronized (MediaUtil.class) {
+            if (null == instance) {
+                instance = new MediaUtil();
+            }
+        }
+        return instance;
+    }
+
+
+//    @TargetApi(Build.VERSION_CODES.N)
+//    private void divideToOutputVideo(MediaExtractor mediaExtractor, MediaMuxer mediaMuxer, ByteBuffer byteBuffer, MediaFormat format,
+//                                     int videoTrack, int videoTrackIndex) {
+//        long videoDuration = format.getLong(MediaFormat.KEY_DURATION);
+//        mediaExtractor.selectTrack(videoTrackIndex);
+//        //分离的MediaTractor只有一个信道，传递的TrackIndex索引为0
+//        writeSampleData(mediaExtractor, mediaMuxer, 0, videoTrack,videoDuration);
+//        mediaExtractor.unselectTrack(videoTrackIndex);
+//    }
+//
+//
+//    private void divideToOutputAudio(MediaExtractor mediaExtractor, MediaMuxer mediaMuxer, ByteBuffer byteBuffer, MediaFormat format,
+//                                     int audioTrack, int audioTrackIndex) {
+//        //获取音频采样率
+//        int sampleRate = format.getInteger(MediaFormat.KEY_SAMPLE_RATE);
+//        //获取音频声道个数
+//        int channelCount = format.getInteger(MediaFormat.KEY_CHANNEL_COUNT);
+//        Log.d(TAG, "rate:" + sampleRate + ",c:" + channelCount);
+//        //获取音频总时长
+//        long audioDuration = format.getLong(MediaFormat.KEY_DURATION);
+//        //参数为多媒体文件MediaExtractor获取到的track count的索引,选择音频轨道
+//        mediaExtractor.selectTrack(audioTrackIndex);
+//
+//        writeSampleData(mediaExtractor, mediaMuxer, 0, audioTrack);
+//
+//        //取消MediaExtractor选择当前轨道
+//        mediaExtractor.unselectTrack(audioTrackIndex);
+//    }
+
+    /**
+     * 合并音频和视频文件
+     *
+     * @param inputVideoFile
+     * @param inputAudioFile
+     * @param outputVideoFile
+     */
+    public void combineVideo(File inputVideoFile, File inputAudioFile, File outputVideoFile) {
+        MediaExtractor videoExtractor = new MediaExtractor();
+        MediaExtractor audioExtractor = new MediaExtractor();
+        MediaMuxer mediaMuxer = null;
+        try {
+            mediaMuxer = new MediaMuxer(outputVideoFile.getAbsolutePath(), MediaMuxer.OutputFormat.MUXER_OUTPUT_MPEG_4);
+
+            // set data source
+            videoExtractor.setDataSource(inputVideoFile.getAbsolutePath());
+            audioExtractor.setDataSource(inputAudioFile.getAbsolutePath());
+
+            // get video or audio 取出视频或音频的信号
+            int videoTrack = getTrack(videoExtractor, true);
+            int audioTrack = getTrack(audioExtractor, false);
+
+            // change to video oraudio track 切换道视频或音频信号的信道
+            videoExtractor.selectTrack(videoTrack);
+            MediaFormat videoFormat = videoExtractor.getTrackFormat(videoTrack);
+            long videoDuration = videoFormat.getLong(MediaFormat.KEY_DURATION);
+            audioExtractor.selectTrack(audioTrack);
+            MediaFormat audioFormat = audioExtractor.getTrackFormat(audioTrack);
+//            long audioDuration = audioFormat.getLong(MediaFormat.KEY_DURATION);
+            //追踪此信道
+            int writeVideoIndex = mediaMuxer.addTrack(videoFormat);
+            int writeAudioIndex = mediaMuxer.addTrack(audioFormat);
+            mediaMuxer.start();
+            // 读取写入帧数据
+            writeSampleData(videoExtractor, mediaMuxer, writeVideoIndex, videoTrack, videoDuration);
+            writeSampleData(audioExtractor, mediaMuxer, writeAudioIndex, audioTrack, videoDuration);
+        } catch (IOException e) {
+            Log.e(TAG, "combineMedia ex", e);
+        } finally {
+            try {
+                if (mediaMuxer != null) {
+                    mediaMuxer.stop();
+                    mediaMuxer.release();
+                }
+                if (videoExtractor != null) {
+                    videoExtractor.release();
+                }
+                if (audioExtractor != null) {
+                    audioExtractor.release();
+                }
+            } catch (Exception e) {
+                Log.w(TAG, "combineMedia release ex", e);
+            }
+        }
+    }
+
+    /**
+     * write sample data to mediaMuxer
+     *
+     * @param mediaExtractor
+     * @param mediaMuxer
+     * @param writeTrackIndex
+     * @param audioTrack
+     * @return
+     */
+    private boolean writeSampleData(MediaExtractor mediaExtractor, MediaMuxer mediaMuxer,
+                                    int writeTrackIndex, int audioTrack, long duration) {
+        try {
+            ByteBuffer byteBuffer = ByteBuffer.allocate(ALLOCATE_BUFFER);
+            // 读取写入帧数据
+            long sampleTime = getSampleTime(mediaExtractor, byteBuffer, audioTrack);
+            MediaCodec.BufferInfo bufferInfo = new MediaCodec.BufferInfo();
+            while (true) {
+                //读取帧之间的数据
+                int readSampleSize = mediaExtractor.readSampleData(byteBuffer, 0);
+                if (readSampleSize < 0) {
+                    break;
+                }
+                mediaExtractor.advance();
+                bufferInfo.size = readSampleSize;
+                bufferInfo.offset = 0;
+                bufferInfo.flags = mediaExtractor.getSampleFlags();
+                bufferInfo.presentationTimeUs += sampleTime;
+                //写入帧的数据
+                mediaMuxer.writeSampleData(writeTrackIndex, byteBuffer, bufferInfo);
+                if (bufferInfo.presentationTimeUs >= duration) {
+                    break;
+                }
+            }
+            return true;
+        } catch (Exception e) {
+            Log.e(TAG, "writeSampleData ex", e);
+        }
+        return false;
+    }
+
+    /**
+     * @param mediaExtractor
+     * @param isVideo        true: get "video/"
+     *                       false get "audio/"
+     * @return
+     */
+    private int getTrack(MediaExtractor mediaExtractor, boolean isVideo) {
+        if (mediaExtractor == null) {
+            Log.e(TAG, "mediaExtractor mediaExtractor is null");
+            return -1;
+        }
+        String type = isVideo ? "video/" : "audio/";
+        int trackCount = mediaExtractor.getTrackCount();
+        for (int i = 0; i < trackCount; i++) {
+            MediaFormat trackFormat = mediaExtractor.getTrackFormat(i);
+            String mimeType = trackFormat.getString(MediaFormat.KEY_MIME);
+            // video or audio track
+            if (mimeType.startsWith(type)) {
+                return i;
+            }
+        }
+        return -1;
+    }
+
+    /**
+     * 获取每帧的之间的时间
+     *
+     * @return
+     */
+    private long getSampleTime(MediaExtractor mediaExtractor, ByteBuffer byteBuffer, int mediaTrack) {
+        if (mediaExtractor == null) {
+            Log.w(TAG, "getSampleTime mediaExtractor is null");
+            return 0;
+        }
+        mediaExtractor.readSampleData(byteBuffer, 0);
+        //skip first I frame
+        if (mediaExtractor.getSampleFlags() == MediaExtractor.SAMPLE_FLAG_SYNC) {
+            mediaExtractor.advance();
+        }
+        mediaExtractor.readSampleData(byteBuffer, 0);
+
+        // get first and second and count sample time
+        long firstVideoPTS = mediaExtractor.getSampleTime();
+        mediaExtractor.advance();
+        mediaExtractor.readSampleData(byteBuffer, 0);
+        long secondVideoPTS = mediaExtractor.getSampleTime();
+        long sampleTime = Math.abs(secondVideoPTS - firstVideoPTS);
+        Log.d(TAG, "getSampleTime is " + sampleTime);
+
+        // 重新切换此信道，不然上面跳过了3帧,造成前面的帧数模糊
+        mediaExtractor.unselectTrack(mediaTrack);
+        mediaExtractor.selectTrack(mediaTrack);
+        return sampleTime;
+    }
+
+    class VideoFileFormat {
+        MediaFormat audioFormat = null;
+        MediaFormat videoFormat = null;
+        int inAudioTrack = -1;
+        int inVideoTrack = -1;
+
+        @Override
+        public String toString() {
+            return "VideoFileFormat{" +
+                    "audioFormat=" + audioFormat +
+                    ", videoFormat=" + videoFormat +
+                    ", inAudioTrack=" + inAudioTrack +
+                    ", inVideoTrack=" + inVideoTrack +
+                    '}';
+        }
+    }
+
+    /**
+     * 合并视频，将多个视频合并为一个
+     *
+     * @param videoList
+     * @param savePath
+     * @return
+     */
+    public boolean combineVideos(List<String> videoList, String savePath) {
+        ArrayList<VideoFileFormat> formats = new ArrayList<>(videoList.size());
+
+        //--------step 1 MediaExtractor拿到多媒体信息，用于MediaMuxer创建文件
+        Iterator<String> videoIterator = videoList.iterator();
+        while (videoIterator.hasNext()) {
+            String videoPath = videoIterator.next();
+            VideoFileFormat format = new VideoFileFormat();
+            MediaExtractor extractor = new MediaExtractor();
+            try {
+                extractor.setDataSource(videoPath);
+            } catch (Exception ex) {
+                ex.printStackTrace();
+            }
+            int trackCount = extractor.getTrackCount();
+            for (int i = 0; i < trackCount; i++) {
+                MediaFormat trackFormat = extractor.getTrackFormat(i);
+                String mimeType = trackFormat.getString(MediaFormat.KEY_MIME);
+                // video or audio track
+                if (mimeType.startsWith("video/")) {
+                    format.videoFormat = trackFormat;
+                    format.inVideoTrack = i;
+                } else if (mimeType.startsWith("audio/")) {
+                    format.audioFormat = trackFormat;
+                    format.inAudioTrack = i;
+                }
+            }
+            formats.add(format);
+            extractor.release();
+            Log.e(TAG, "==>" + format.toString());
+        }
+
+        MediaMuxer mMuxer = null;
+        try {
+            mMuxer = new MediaMuxer(savePath, MediaMuxer.OutputFormat.MUXER_OUTPUT_MPEG_4);
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+        int outAudioIndex = -1;
+        int outVideoIndex = -1;
+        int size = formats.size();
+        VideoFileFormat format;
+        for (int i = 0; i < size; i++) {
+//            Log.e(TAG, "add format:"+i);
+            format = formats.get(0);
+            if (null != format.videoFormat && outVideoIndex == -1) {
+                outVideoIndex = mMuxer.addTrack(format.videoFormat);
+            }
+            if (null != format.audioFormat && outAudioIndex == -1) {
+                outAudioIndex = mMuxer.addTrack(format.audioFormat);
+            }
+            if (outAudioIndex != -1 && outVideoIndex != -1) {
+                break;
+            }
+        }
+        mMuxer.start();
+        //--------step 1 end---------------------------//
+
+
+        //--------step 2 遍历文件，MediaExtractor读取帧数据，MediaMuxer写入帧数据，并记录帧信息
+        long ptsOffset = 0L;
+        for (int i = 0; i < size; i++) {
+            String videoPath = videoList.get(i);
+            format = formats.get(i);
+            //记录当前文件是否有视频通道
+            boolean hasVideo = true;
+            boolean hasAudio = true; //音频通道
+            //处理视频通道配置
+            MediaExtractor videoExtractor = new MediaExtractor();
+            try {
+                videoExtractor.setDataSource(videoPath);
+            } catch (Exception e) {
+                e.printStackTrace();
+            }
+            //源文件视频通道下标
+            if (format.inVideoTrack < 0) {
+                hasVideo = false;
+            } else {
+                videoExtractor.selectTrack(format.inVideoTrack);
+            }
+            //处理音频通道配置
+            MediaExtractor audioExtractor = new MediaExtractor();
+            try {
+                audioExtractor.setDataSource(videoPath);
+            } catch (Exception e) {
+                e.printStackTrace();
+            }
+            //源文件音频通道下标
+            if (format.inAudioTrack < 0) {
+                hasAudio = false;
+            } else {
+                audioExtractor.selectTrack(format.inAudioTrack);
+            }
+            long presentationTimeUs;
+            long audioPts = 0L;
+            long videoPts = 0L;
+            //读取数据缓存空间
+            ByteBuffer mReadBuf = ByteBuffer.allocate(1048576);
+
+            //循环读写视频/音频数据
+            int outTrackIndex;
+            MediaExtractor extractor;
+            int currentTrackIndex;
+            while (true) {
+                if (!hasVideo && !hasAudio) {
+                    Log.e(TAG, "no data yet!!!");
+                    break;
+                }
+
+                if (hasVideo) {
+                    currentTrackIndex = format.inVideoTrack;
+                    outTrackIndex = outVideoIndex;
+                    extractor = videoExtractor;
+                } else {
+                    currentTrackIndex = format.inAudioTrack;
+                    outTrackIndex = outAudioIndex;
+                    extractor = audioExtractor;
+                }
+
+                mReadBuf.rewind();
+                int chunkSize = extractor.readSampleData(mReadBuf, 0);//读取帧数据
+                if (chunkSize < 0) {
+                    if (currentTrackIndex == format.inVideoTrack) {
+                        hasVideo = false;
+                    } else {
+                        hasAudio = false;
+                    }
+                } else {
+                    if (extractor.getSampleTrackIndex() != currentTrackIndex) {
+                        Log.e(TAG, "WEIRD: got sample from track " + extractor.getSampleTrackIndex() + ", expected " + currentTrackIndex);
+                    }
+
+                    presentationTimeUs = extractor.getSampleTime();//读取帧的pts
+                    if (currentTrackIndex == format.inVideoTrack) {
+                        videoPts = presentationTimeUs;
+                    } else {
+                        audioPts = presentationTimeUs;
+                    }
+
+                    MediaCodec.BufferInfo info = new MediaCodec.BufferInfo();
+                    info.offset = 0;
+                    info.size = chunkSize;
+                    info.presentationTimeUs = ptsOffset + presentationTimeUs;//pts重新计算
+//                    if ((extractor.getSampleFlags() & MediaCodec.BUFFER_FLAG_KEY_FRAME) != 0) {
+                    info.flags = MediaCodec.BUFFER_FLAG_KEY_FRAME;
+//                    }
+
+                    mReadBuf.rewind();
+                    Log.i(TAG, String.format("write sample track %d, size %d, pts %d flag %d", new Object[]{Integer.valueOf(outTrackIndex), Integer.valueOf(info.size), Long.valueOf(info.presentationTimeUs), Integer.valueOf(info.flags)}));
+                    mMuxer.writeSampleData(outTrackIndex, mReadBuf, info);//写入文件
+                    extractor.advance();
+                }
+            }
+
+            //记录当前文件的最后一个pts，作为下一个文件的pts offset
+            ptsOffset += videoPts > audioPts ? videoPts : audioPts;
+            ptsOffset += 10000L;//前一个文件的最后一帧与后一个文件的第一帧，差10ms，只是估计值，不准确，但能用
+
+            Log.i(TAG, "finish one file, ptsOffset " + ptsOffset);
+
+            videoExtractor.release();
+            audioExtractor.release();
+        }
+
+        if (mMuxer != null) {
+            try {
+                mMuxer.stop();
+                mMuxer.release();
+            } catch (Exception e) {
+                Log.e(TAG, "Muxer close error. No data was written");
+            }
+            mMuxer = null;
+        }
+
+        Log.i(TAG, "video join finished");
+        return true;
+    }
+
+
+    /**
+     * @param url
+     * @param clipPoint    截取的起始时间（单位是微秒 us 1秒=10的6次方微秒）
+     * @param clipDuration 截取的结束时间（单位是微秒）
+     * @param savePath
+     * @return
+     */
+    public boolean clipVideo(String url, long clipPoint, long clipDuration, String savePath) {
+        if (clipDuration <= 0) {
+            Log.e(TAG, "clip duration illegal");
+            return false;
+        }
+        //截取的最后一个点
+        MediaMuxer mediaMuxer = null;
+        try {
+            //创建合成器
+            mediaMuxer = new MediaMuxer(savePath, MediaMuxer.OutputFormat.MUXER_OUTPUT_MPEG_4);
+        } catch (Exception e) {
+            Log.e(TAG, "error path" + e.getMessage());
+        }
+        if (null == mediaMuxer) {
+            Log.e(TAG, "MediaMuxer init fail");
+            return false;
+        }
+        boolean hasVideo = true;
+        boolean hasAudio = true;
+        //处理视频通道配置
+        MediaExtractor videoExtractor = new MediaExtractor();
+        try {
+            videoExtractor.setDataSource(url);
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+        int outVideoIndex = -1, outAudioIndex = -1;
+        int rotation = 0;
+        //源文件视频通道下标
+        int inVideoTrackIndex = getTrack(videoExtractor, true);
+        if (inVideoTrackIndex < 0) {
+            hasVideo = false;
+        } else {
+            MediaFormat mediaFormat = videoExtractor.getTrackFormat(inVideoTrackIndex);
+            long videoDuration = mediaFormat.getLong(MediaFormat.KEY_DURATION);
+            if (mediaFormat.containsKey(MediaFormat.KEY_ROTATION)) {
+                rotation = mediaFormat.getInteger(MediaFormat.KEY_ROTATION);
+            }
+            //检测剪辑点和剪辑时长是否正确
+            if (clipPoint >= videoDuration) {
+                Log.e(TAG, "clip point is error!");
+                videoExtractor.release();
+                mediaMuxer.release();
+                return false;
+            }
+            outVideoIndex = mediaMuxer.addTrack(mediaFormat);
+            videoExtractor.selectTrack(inVideoTrackIndex);
+        }
+        //处理音频通道配置
+        MediaExtractor audioExtractor = new MediaExtractor();
+        try {
+            audioExtractor.setDataSource(url);
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+        //源文件音频通道下标
+        int inAudioTrackIndex = getTrack(audioExtractor, false);
+        if (inAudioTrackIndex < 0) {
+            hasAudio = false;
+        } else {
+            outAudioIndex = mediaMuxer.addTrack(audioExtractor.getTrackFormat(inAudioTrackIndex));
+            audioExtractor.selectTrack(inAudioTrackIndex);
+        }
+        if (!hasVideo && !hasAudio) {
+            videoExtractor.release();
+            audioExtractor.release();
+            mediaMuxer.release();
+            Log.e(TAG, "no video and no audio");
+            return false;
+        }
+        if (rotation != 0) {
+            mediaMuxer.setOrientationHint(rotation);
+        }
+        //根据官方文档的解释MediaMuxer的start一定要在addTrack之后
+        mediaMuxer.start();
+        //读取数据缓存空间
+        ByteBuffer mReadBuf = ByteBuffer.allocate(1048576);
+        long startVideoTime = 0;
+        long startAudioTime = 0;
+        if (clipPoint > 0) {
+            if (hasVideo) {
+                videoExtractor.seekTo(clipPoint, MediaExtractor.SEEK_TO_CLOSEST_SYNC);
+                startVideoTime = videoExtractor.getSampleTime();
+            }
+            if (hasAudio) {
+                audioExtractor.seekTo(clipPoint, MediaExtractor.SEEK_TO_CLOSEST_SYNC);
+                startAudioTime = audioExtractor.getSampleTime();
+            }
+        }
+        long presentationTimeUs;
+        //循环读写视频/音频数据
+        int currentOutIndex;
+        MediaExtractor extractor;
+        long startTime;
+        while (true) {
+            if (!hasVideo && !hasAudio) {
+                Log.e(TAG, "clip finish ---- break");
+                break;
+            }
+            if (hasVideo) {
+                currentOutIndex = outVideoIndex;
+                extractor = videoExtractor;
+                startTime = startVideoTime;
+            } else {
+                currentOutIndex = outAudioIndex;
+                extractor = audioExtractor;
+                startTime = startAudioTime;
+            }
+
+            mReadBuf.rewind();
+            int chunkSize = extractor.readSampleData(mReadBuf, 0);//读取帧数据
+            if (chunkSize < 0) {
+                if (currentOutIndex == outVideoIndex) {
+                    hasVideo = false;
+                } else {
+                    hasAudio = false;
+                }
+            } else {
+                presentationTimeUs = extractor.getSampleTime();//读取帧的pts
+
+                MediaCodec.BufferInfo info = new MediaCodec.BufferInfo();
+                info.offset = 0;
+                info.size = chunkSize;
+                info.presentationTimeUs = (presentationTimeUs - startTime);
+                info.flags = MediaCodec.BUFFER_FLAG_KEY_FRAME;
+
+                mReadBuf.rewind();
+//                Log.e(TAG, String.format("write sample track %d, size %d, pts %d flag %d startTime %d", new Object[]{Integer.valueOf(currentOutIndex), Integer.valueOf(info.size), Long.valueOf(info.presentationTimeUs), Integer.valueOf(info.flags), Long.valueOf(startTime)}));
+                mediaMuxer.writeSampleData(currentOutIndex, mReadBuf, info);//写入文件
+                //检测是否处理到截取结束点
+                if (presentationTimeUs >= (startTime + clipDuration)) {
+                    if (currentOutIndex == outVideoIndex) {
+                        hasVideo = false;
+                    } else {
+                        hasAudio = false;
+                    }
+                }
+                extractor.advance();
+            }
+        }
+        //全部写完后释放MediaMuxer和MediaExtractor
+        mediaMuxer.stop();
+        mediaMuxer.release();
+        videoExtractor.release();
+        audioExtractor.release();
+        return true;
+    }
+
+    public boolean slowVideo(String url, long startPoint, long slowDuration, String savePath) {
+        if (slowDuration <= 0) {
+            Log.e(TAG, "slow duration illegal");
+            return false;
+        }
+        //截取的最后一个点
+        MediaMuxer mediaMuxer = null;
+        try {
+            //创建合成器
+            mediaMuxer = new MediaMuxer(savePath, MediaMuxer.OutputFormat.MUXER_OUTPUT_MPEG_4);
+        } catch (Exception e) {
+            Log.e(TAG, "error : " + e.getMessage());
+        }
+        if (null == mediaMuxer) {
+            Log.e(TAG, "MediaMuxer init fail");
+            return false;
+        }
+        boolean hasVideo = true;
+        boolean hasAudio = true;
+        //处理视频通道配置
+        MediaExtractor videoExtractor = new MediaExtractor();
+        try {
+            videoExtractor.setDataSource(url);
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+        //帧率
+        int frameRate = 30;
+        int rotation = 0;
+        int videoMaxInputSize=0;
+        //输出通道下标
+        int outVideoIndex = -1, outAudioIndex = -1;
+        //源文件视频通道下标
+        int inVideoTrackIndex = getTrack(videoExtractor, true);
+        if (inVideoTrackIndex < 0) {
+            hasVideo = false;
+        } else {
+            MediaFormat mediaFormat = videoExtractor.getTrackFormat(inVideoTrackIndex);
+            long videoDuration = mediaFormat.getLong(MediaFormat.KEY_DURATION);
+            frameRate = mediaFormat.getInteger(MediaFormat.KEY_FRAME_RATE);
+            videoMaxInputSize = mediaFormat.getInteger(MediaFormat.KEY_MAX_INPUT_SIZE);
+            if (mediaFormat.containsKey(MediaFormat.KEY_ROTATION)) {
+                rotation = mediaFormat.getInteger(MediaFormat.KEY_ROTATION);
+            }
+            if (startPoint >= videoDuration) {
+                Log.e(TAG, "slow start point is error!");
+                videoExtractor.release();
+                mediaMuxer.release();
+                return false;
+            }
+            outVideoIndex = mediaMuxer.addTrack(mediaFormat);
+            videoExtractor.selectTrack(inVideoTrackIndex);
+        }
+        //处理音频通道配置
+        MediaExtractor audioExtractor = new MediaExtractor();
+        try {
+            audioExtractor.setDataSource(url);
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+        //源文件音频通道下标
+        int inAudioTrackIndex = getTrack(audioExtractor, false);
+        if (inAudioTrackIndex < 0) {
+            hasAudio = false;
+        } else {
+            outAudioIndex = mediaMuxer.addTrack(audioExtractor.getTrackFormat(inAudioTrackIndex));
+            audioExtractor.selectTrack(inAudioTrackIndex);
+        }
+        if (!hasVideo && !hasAudio) {
+            videoExtractor.release();
+            audioExtractor.release();
+            mediaMuxer.release();
+            Log.e(TAG, "no video and no audio");
+            return false;
+        }
+        if (rotation != 0) {
+            mediaMuxer.setOrientationHint(rotation);
+        }
+        //根据官方文档的解释MediaMuxer的start一定要在addTrack之后
+        mediaMuxer.start();
+        //慢动作展示的单帧最长显示时间
+        //读取数据缓存空间(单位是微秒 us 1秒=10的6次方微秒）-- 200ms
+        long slowLastTime = 200 * 1000;
+        ByteBuffer mReadBuf = ByteBuffer.allocate(1048576);
+        long presentationTimeUs;
+        //循环读写视频/音频数据
+        int currentOutIndex;
+        MediaExtractor extractor;
+//        long startTime;
+        //已添加的总时间
+        long totalAdd = 0;
+        //添加的帧间隔
+        long frameSpace = 1000 * 1000 / frameRate;
+        while (true) {
+            if (!hasVideo && !hasAudio) {
+                Log.e(TAG, "option finish ---- break");
+                break;
+            }
+            if (hasVideo) {
+                currentOutIndex = outVideoIndex;
+                extractor = videoExtractor;
+//                startTime = startVideoTime;
+            } else {
+                currentOutIndex = outAudioIndex;
+                extractor = audioExtractor;
+//                startTime = startAudioTime;
+            }
+
+            mReadBuf.rewind();
+            int chunkSize = extractor.readSampleData(mReadBuf, 0);//读取帧数据
+            if (chunkSize < 0) {
+                totalAdd = 0;
+                if (currentOutIndex == outVideoIndex) {
+                    hasVideo = false;
+                } else {
+                    hasAudio = false;
+                }
+            } else {
+                presentationTimeUs = extractor.getSampleTime();//读取帧的pts
+                MediaCodec.BufferInfo info = new MediaCodec.BufferInfo();
+                //加帧时间
+                if (presentationTimeUs < startPoint) {
+                    info.offset = 0;
+                    info.size = chunkSize;
+                    info.flags = extractor.getSampleFlags();
+                    info.presentationTimeUs = presentationTimeUs;
+                    mReadBuf.rewind();
+                    mediaMuxer.writeSampleData(currentOutIndex, mReadBuf, info);//写入文件
+                } else if (presentationTimeUs >= startPoint && presentationTimeUs < startPoint + slowDuration) {
+                    float fraction = (float) (presentationTimeUs - startPoint) / slowDuration;
+                    long t = (long) (slowLastTime * evaluate(fraction));
+                    for (long i = 0; i < t; i += frameSpace) {
+                        info.offset = 0;
+                        info.size = chunkSize;
+                        info.flags = MediaCodec.BUFFER_FLAG_KEY_FRAME;
+                        info.presentationTimeUs = startPoint + totalAdd;
+                        totalAdd += t;
+                        mReadBuf.rewind();
+                        mediaMuxer.writeSampleData(currentOutIndex, mReadBuf, info);//写入文件
+                    }
+                } else {
+//                info.presentationTimeUs = (presentationTimeUs - startTime);
+//                    presentationTimeUs - startPoint-slowDuration
+                    info.offset = 0;
+                    info.size = chunkSize;
+                    info.flags = extractor.getSampleFlags();
+                    info.presentationTimeUs = totalAdd + presentationTimeUs - slowDuration;
+                    mReadBuf.rewind();
+                    mediaMuxer.writeSampleData(currentOutIndex, mReadBuf, info);//写入文件
+                }
+//                info.flags = MediaCodec.BUFFER_FLAG_KEY_FRAME;
+//                mReadBuf.rewind();
+//                mediaMuxer.writeSampleData(currentOutIndex, mReadBuf, info);//写入文件
+                extractor.advance();
+                Log.e(TAG, String.format("write sample track %d, size %d, pts %d flag %d", new Object[]{Integer.valueOf(currentOutIndex), Integer.valueOf(info.size), Long.valueOf(info.presentationTimeUs), Integer.valueOf(info.flags)}));
+            }
+        }
+        //全部写完后释放MediaMuxer和MediaExtractor
+        mediaMuxer.stop();
+        mediaMuxer.release();
+        videoExtractor.release();
+        audioExtractor.release();
+        return true;
+    }
+
+    public Float evaluate(float fraction) {
+        if (fraction >= 0.4 && fraction <= 0.7) {
+            return 1.0f;
+        }
+        return (float) Math.sin(fraction * Math.PI);
+    }
+
+    public void release() {
+        instance = null;
+    }
+
+}
