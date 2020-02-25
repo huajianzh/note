@@ -1,0 +1,96 @@
+FileProvider处理文件时可能会出现权限不足的问题。
+场景：A应用将照片地址传递给B应用裁剪，B应用裁剪之后将结果写入A提供的地址中。
+那么A中一般会生命FileProvider：（manifest.xml）
+<provider
+    android:name="android.support.v4.content.FileProvider"
+    android:authorities="应用包名.fileProvider"
+    android:exported="false"
+    android:grantUriPermissions="true">
+    <meta-data
+        android:name="android.support.FILE_PROVIDER_PATHS"
+        android:resource="@xml/file_paths" />
+</provider>
+而res/xml/file_paths.xml描述如下：
+<?xml version="1.0" encoding="utf-8"?>
+<paths>
+    <external-path path="Android/data/应用包名/files" name="files_root" />
+    <external-path path="." name="external_storage_root" />
+    <files-path
+        name="images"
+        path="images/" />
+    <files-path
+        name="docs"
+        path="docs/" />
+</paths>
+
+此时如果直接使用FileProvider处理文件Uri并且从A传递给B，让B直接写入可能会出现以下异常：
+Permission Denial: opening provider android.support.v4.content.FileProvider from ProcessRecord{123af 123:包名/u0123} (pid=12345, uid=1234) that is not exported from uid 1111
+意思大概是B进程无权限将内容写入A进程提供的地址中，因此需要在A中对请求的Intent以及目标进行Uri读写授权，A启动裁剪操作如下：
+File f = new File("...");
+Uri uri; //需要裁剪的图像原地址
+if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) { //7.0以上使用FileProvider
+    uri = FileProvider.getUriForFile(this, "包名.fileProvider", f);
+} else {
+    uri = Uri.fromFile(f);
+}
+Intent intent = new Intent("com.android.camera.action.CROP");
+intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_GRANT_WRITE_URI_PERMISSION);
+intent.setDataAndType(uri , "image/*");
+intent.putExtra("crop", "true");
+intent.putExtra("aspectX", 1);
+intent.putExtra("aspectY", 1);
+intent.putExtra("outputX", 500);
+intent.putExtra("outputY", 500);
+intent.putExtra("scale", true);
+Uri saveUri = ...; //裁剪结果存储的地址(获取方式同"需要裁剪的图像原地址uri")
+intent.putExtra(MediaStore.EXTRA_OUTPUT, saveUri);
+intent.putExtra("return-data", false);
+intent.putExtra("outputFormat", Bitmap.CompressFormat.JPEG.toString());
+intent.putExtra("noFaceDetection", true);
+//将存储图片的uri读写权限授权给剪裁工具应用(非常关键，要不然目标应用无法写入当前进程提供的地址中)
+List<ResolveInfo> resInfoList = activity.getPackageManager().queryIntentActivities(intent, PackageManager.MATCH_DEFAULT_ONLY);
+for (ResolveInfo resolveInfo : resInfoList) {
+    String packageName = resolveInfo.activityInfo.packageName;
+    activity.grantUriPermission(packageName, saveUri, Intent.FLAG_GRANT_WRITE_URI_PERMISSION | Intent.FLAG_GRANT_READ_URI_PERMISSION);
+}
+startActivityForResult(Intent.createChooser(intent, "选择剪裁工具"), REQUEST_CROP);
+
+B进程（裁剪应用）的写入过程如下：
+if (returnData) {
+    Intent it = new Intent();
+    it.putExtra("data", cropImageView.getBitmap());
+    setResult(RESULT_OK, it);
+}else if (null != saveUri && "content".equalsIgnoreCase(saveUri.getScheme())) {
+    FileOutputStream out = null;
+    try {
+        ParcelFileDescriptor pfd = getContentResolver().openFileDescriptor(saveUri, "rw");
+        FileDescriptor fd = pfd.getFileDescriptor();
+        out = new FileOutputStream(fd);
+        Bitmap b = cropImageView.getBitmap();  //裁剪结果图像
+        b.compress(Bitmap.CompressFormat.PNG, 80, out); //存储到目标文件中
+        out.flush();
+    } catch (Exception e) {
+        e.printStackTrace();
+    } finally {
+        if (null != out) {
+            try {
+                out.close();
+            } catch (IOException e) {
+                e.printStackTrace();
+            }
+        }
+    }
+    setResult(RESULT_OK);
+}
+
+附：请求拍照
+Uri uri = ...; //拍照结果保存位置
+Intent intent = new Intent(MediaStore.ACTION_IMAGE_CAPTURE);
+intent.putExtra(MediaStore.EXTRA_OUTPUT, uri);
+//将存储图片的uri读写权限授权给相机应用
+List<ResolveInfo> resInfoList = activity.getPackageManager().queryIntentActivities(intent, PackageManager.MATCH_DEFAULT_ONLY);
+for (ResolveInfo resolveInfo : resInfoList) {
+    String packageName = resolveInfo.activityInfo.packageName;
+    activity.grantUriPermission(packageName, uri , Intent.FLAG_GRANT_WRITE_URI_PERMISSION | Intent.FLAG_GRANT_READ_URI_PERMISSION);
+}
+startActivityForResult(Intent.createChooser(intent, "选择拍照工具"), REQUEST_CAPTURE);
