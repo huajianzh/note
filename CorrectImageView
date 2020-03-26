@@ -1,4 +1,4 @@
-package com.byd.view;
+package com.abc.view;
 
 import android.content.Context;
 import android.graphics.Bitmap;
@@ -15,8 +15,6 @@ import android.view.View;
 import android.widget.ImageView;
 
 /**
- * Created by zhang.huajian on 2019/1/2.
- * Email: zhang.huajian2@byd.com
  * 矫正图像视图
  */
 public class CorrectPicView extends ImageView {
