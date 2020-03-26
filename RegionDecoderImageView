@@ -1,4 +1,4 @@
-package com.byd.view;
+package com.abc.view;
 
 import android.content.Context;
 import android.graphics.Bitmap;
