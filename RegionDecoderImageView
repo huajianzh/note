@@ -16,8 +16,6 @@ import java.io.IOException;
 import java.io.InputStream;
 
 /**
- * Created by zhang.huajian on 2018/12/27.
- * Email: zhang.huajian2@byd.com
  * 原图查看器（图片局部加载器）
  */
 public class RegionImageView extends View {
