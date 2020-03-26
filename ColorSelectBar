@@ -15,7 +15,7 @@ import android.util.AttributeSet;
 import android.view.MotionEvent;
 import android.view.View;
 
-import com.byd.textureviewdemo.R;
+import com.abc.textureviewdemo.R;
 
 /**
  *颜色选择拖动条
