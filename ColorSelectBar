@@ -1,4 +1,4 @@
-package com.byd.view;
+package com.abc.view;
 
 import android.content.Context;
 import android.graphics.Canvas;
@@ -18,8 +18,7 @@ import android.view.View;
 import com.byd.textureviewdemo.R;
 
 /**
- * Created by zhang.huajian on 2019/2/28.
- * Email: zhang.huajian2@byd.com
+ *颜色选择拖动条
  */
 public class ColorSelectBar extends View {
 
